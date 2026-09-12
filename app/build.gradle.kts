@@ -12,8 +12,8 @@ android {
         applicationId = "com.musicplayer"
         minSdk = 26 // Как ты просил изначально
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0"
+        versionCode = 7
+        versionName = "1.0-http"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -89,6 +89,9 @@ dependencies {
 
     // Lottie — JSON анимации
     implementation("com.airbnb.android:lottie-compose:6.4.0")
+
+    // Local HTTP server for Hikka / external now-playing
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
