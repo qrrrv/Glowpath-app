@@ -21,6 +21,12 @@ class MusicApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         DynamicColors.applyToActivitiesIfAvailable(this)
+        // Локальный HTTP-сервер для Hikka / внешних клиентов (.now)
+        try {
+            com.musicplayer.server.NowPlayingHttpServer.start(this)
+        } catch (e: Exception) {
+            android.util.Log.e("MusicApplication", "Failed to start NowPlaying HTTP server", e)
+        }
     }
 
     override fun newImageLoader(): ImageLoader {
