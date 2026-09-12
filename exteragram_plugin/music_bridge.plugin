@@ -1,0 +1,1968 @@
+__id__ = "music_bridge"
+__name__ = "Now Card"
+__description__ = "Команда .play делает красивую карточку текущего трека из твоего плеера и отправляет её как фото."
+__version__ = "4.7.0"
+__author__ = "@JavaScript_XD"
+__min_version__ = "11.12.0"
+
+import base64
+import json
+import math
+import os
+import re
+import zlib
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
+
+from base_plugin import BasePlugin, HookResult, HookStrategy, MenuItemData, MenuItemType
+from client_utils import get_last_fragment, run_on_queue, send_message, send_photo
+from android_utils import log
+from ui.bulletin import BulletinHelper
+from ui.settings import Header, Input, Selector, Switch, Text
+from android.net import Uri
+from java.nio.file import Files, Paths, StandardCopyOption
+from markdown_utils import parse_markdown
+
+
+PACKAGE_NAME = "com.musicplayer"
+STATUS_URI = "content://com.musicplayer.bridge/status"
+RESAMPLE = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+
+THEME_ITEMS = ["Apple", "Glass", "Minimal", "Poster", "Aura"]
+COLOR_ITEMS = ["Auto", "Dark", "Light", "Rose", "Ocean", "Emerald", "Sunset", "Lavender"]
+FONT_ITEMS = ["Sans", "Serif", "Mono", "Condensed"]
+LAYOUT_ITEMS = ["Wide Left", "Wide Right", "Square"]
+STRENGTH_ITEMS = ["Soft", "Balanced", "Vivid"]
+OVERLAY_ITEMS = ["Light", "Normal", "Strong"]
+GLOW_ITEMS = ["Off", "Soft", "Medium", "Strong"]
+FOOTER_ITEMS = ["Bottom Left", "Bottom Right", "Top Right", "Top Left"]
+TITLE_LINE_ITEMS = ["1 line", "2 lines", "3 lines"]
+ARTIST_LINE_ITEMS = ["1 line", "2 lines"]
+BRANDING_ITEMS = ["Off", "Text", "Badge"]
+PROGRESS_STYLE_ITEMS = ["Classic", "Wave", "Segments"]
+PRESET_DIR = "/storage/emulated/0/Download/Now Card Presets"
+PRESET_EXT = ".nowcardpreset"
+SHARE_MARKER = "NOWCARD::"
+SETTINGS_DEFAULTS = {
+    "enabled": True,
+    "command": ".play",
+    "high_quality": True,
+    "theme_selector": 0,
+    "color_style": 0,
+    "layout_selector": 0,
+    "font_selector": 0,
+    "accent_strength": 1,
+    "overlay_strength": 1,
+    "glow_strength": 1,
+    "blur_background": True,
+    "rounded_cover": True,
+    "show_cover_shadow": True,
+    "show_border": True,
+    "show_text_shadow": True,
+    "show_label": True,
+    "title_lines_selector": 1,
+    "artist_lines_selector": 1,
+    "show_album": True,
+    "show_state": True,
+    "show_progress": True,
+    "progress_style_selector": 0,
+    "show_time_labels": True,
+    "branding_mode": 2,
+    "branding_position": 0,
+    "branding_text": "Music Player",
+    "show_caption": False,
+    "caption_template": "{artist} — {track}",
+    "share_command": ".style",
+    "import_reply_command": ".usestyle",
+    "preset_name": "my_style",
+    "preset_selector": 0,
+}
+PRESET_KEYS = [
+    "command",
+    "high_quality",
+    "theme_selector",
+    "color_style",
+    "layout_selector",
+    "font_selector",
+    "accent_strength",
+    "overlay_strength",
+    "glow_strength",
+    "blur_background",
+    "rounded_cover",
+    "show_cover_shadow",
+    "show_border",
+    "show_text_shadow",
+    "show_label",
+    "title_lines_selector",
+    "artist_lines_selector",
+    "show_album",
+    "show_state",
+    "show_progress",
+    "progress_style_selector",
+    "show_time_labels",
+    "branding_mode",
+    "branding_position",
+    "branding_text",
+    "show_caption",
+    "caption_template",
+]
+
+
+def cleanup_text(value):
+    if value is None:
+        return ""
+    text = " ".join(str(value).replace("\n", " ").split()).strip()
+    if len(text) > 220:
+        return text[:219] + "…"
+    return text
+
+
+def safe_int(value, default=0):
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def format_ms(value):
+    total = max(0, safe_int(value))
+    seconds = total // 1000
+    minutes = seconds // 60
+    hours = minutes // 60
+    if hours > 0:
+        return f"{hours}:{minutes % 60:02d}:{seconds % 60:02d}"
+    return f"{minutes}:{seconds % 60:02d}"
+
+
+def blend_color(a, b, t):
+    t = float(t)
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+def with_alpha(rgb, alpha):
+    return (rgb[0], rgb[1], rgb[2], alpha)
+
+
+def has_unicode_text(text):
+    for char in cleanup_text(text):
+        if ord(char) > 127:
+            return True
+    return False
+
+
+class Plugin(BasePlugin):
+    def on_plugin_load(self):
+        self.add_on_send_message_hook()
+        self._run_migrations()
+        self.add_menu_item(
+            MenuItemData(
+                menu_type=MenuItemType.CHAT_ACTION_MENU,
+                text="Поделиться настройками Now Card",
+                icon="msg_share",
+                priority=90,
+                on_click=self._share_preset_from_chat_menu,
+            )
+        )
+        self.add_menu_item(
+            MenuItemData(
+                menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
+                text="Применить конфиг Now Card",
+                icon="msg_download",
+                priority=90,
+                on_click=self._import_preset_from_message_menu,
+            )
+        )
+        self.log("Now Card loaded")
+
+    def create_settings(self):
+        return [
+            Header(text="Now Card"),
+            Switch(
+                key="enabled",
+                text="Включён",
+                default=True,
+                subtext="Перехватывает только одну команду и вместо текста отправляет фото-карточку трека.",
+            ),
+            Input(
+                key="command",
+                text="Команда",
+                default=".play",
+                subtext="Напиши эту команду в чат, чтобы отправить карточку текущего трека.",
+                icon="msg_text",
+            ),
+            Switch(
+                key="high_quality",
+                text="Высокое качество фото",
+                default=True,
+                subtext="Отправляет карточку как high-quality photo.",
+            ),
+            Header(text="Композиция"),
+            Selector(
+                key="theme_selector",
+                text="Тема карточки",
+                default=0,
+                items=THEME_ITEMS,
+                icon="msg_theme",
+            ),
+            Selector(
+                key="color_style",
+                text="Цветовой стиль",
+                default=0,
+                items=COLOR_ITEMS,
+                icon="menu_colors",
+            ),
+            Selector(
+                key="layout_selector",
+                text="Формат карточки",
+                default=0,
+                items=LAYOUT_ITEMS,
+                icon="msg_gallery",
+            ),
+            Selector(
+                key="font_selector",
+                text="Шрифт",
+                default=0,
+                items=FONT_ITEMS,
+                icon="msg_photo_text_framed3",
+            ),
+            Header(text="Эффекты"),
+            Selector(
+                key="accent_strength",
+                text="Яркость акцента",
+                default=1,
+                items=STRENGTH_ITEMS,
+                icon="menu_colors",
+            ),
+            Selector(
+                key="overlay_strength",
+                text="Плотность фона",
+                default=1,
+                items=OVERLAY_ITEMS,
+                icon="msg_filled_data",
+            ),
+            Selector(
+                key="glow_strength",
+                text="Свечение",
+                default=1,
+                items=GLOW_ITEMS,
+                icon="menu_flame",
+            ),
+            Switch(
+                key="blur_background",
+                text="Размытие фоновой обложки",
+                default=True,
+                subtext="Особенно хорошо выглядит в Glass, Poster и Aura.",
+            ),
+            Switch(
+                key="rounded_cover",
+                text="Скруглять обложку",
+                default=True,
+            ),
+            Switch(
+                key="show_cover_shadow",
+                text="Тень под обложкой",
+                default=True,
+            ),
+            Switch(
+                key="show_border",
+                text="Тонкая рамка панели",
+                default=True,
+            ),
+            Switch(
+                key="show_text_shadow",
+                text="Лёгкая тень текста",
+                default=True,
+            ),
+            Header(text="Текст и плеер"),
+            Switch(
+                key="show_label",
+                text="Показывать метку NOW PLAYING",
+                default=True,
+            ),
+            Selector(
+                key="title_lines_selector",
+                text="Строк у названия",
+                default=1,
+                items=TITLE_LINE_ITEMS,
+                icon="msg_limit_links",
+            ),
+            Selector(
+                key="artist_lines_selector",
+                text="Строк у артиста",
+                default=1,
+                items=ARTIST_LINE_ITEMS,
+                icon="msg_limit_links",
+            ),
+            Switch(
+                key="show_album",
+                text="Показывать альбом",
+                default=True,
+            ),
+            Switch(
+                key="show_state",
+                text="Показывать статус play/pause",
+                default=True,
+            ),
+            Switch(
+                key="show_progress",
+                text="Показывать прогресс",
+                default=True,
+            ),
+            Selector(
+                key="progress_style_selector",
+                text="Вид ползунка",
+                default=0,
+                items=PROGRESS_STYLE_ITEMS,
+                icon="msg_media",
+            ),
+            Switch(
+                key="show_time_labels",
+                text="Показывать время у прогресса",
+                default=True,
+            ),
+            Header(text="Брендинг и подпись"),
+            Selector(
+                key="branding_mode",
+                text="Низ карточки",
+                default=2,
+                items=BRANDING_ITEMS,
+                icon="msg_input_media",
+            ),
+            Selector(
+                key="branding_position",
+                text="Позиция брендинга",
+                default=0,
+                items=FOOTER_ITEMS,
+                icon="msg_gallery",
+            ),
+            Input(
+                key="branding_text",
+                text="Название приложения на карточке",
+                default="Music Player",
+                subtext="Показывается внутри карточки как подпись или бейдж приложения.",
+                icon="menu_topic_add",
+            ),
+            Switch(
+                key="show_caption",
+                text="Текст под фото",
+                default=False,
+                subtext="Если включить, под фото в чате появится подпись. По умолчанию выключено.",
+            ),
+            Input(
+                key="caption_template",
+                text="Шаблон текста под фото",
+                default="{artist} — {track}",
+                subtext="Плейсхолдеры: {track}, {artist}, {album}, {app}, {state}",
+                icon="msg_addbio",
+            ),
+            Header(text="Обмен и профили"),
+            Input(
+                key="share_command",
+                text="Команда для шаринга стиля",
+                default=".style",
+                subtext="Напиши её в чат, чтобы отправить свой стиль карточки сообщением.",
+                icon="msg_share",
+            ),
+            Input(
+                key="import_reply_command",
+                text="Команда для импорта по reply",
+                default=".usestyle",
+                subtext="Ответь этой командой на сообщение со стилем, и пресет применится.",
+                icon="msg_download",
+            ),
+            Input(
+                key="preset_name",
+                text="Имя для файла профиля",
+                default="my_style",
+                subtext="По этому имени плагин сохранит или экспортирует твой стиль карточек.",
+                icon="menu_edit",
+            ),
+            Selector(
+                key="preset_selector",
+                text="Файл профиля",
+                default=0,
+                items=self._preset_items(),
+                icon="msg_document",
+            ),
+            Text(
+                text="Сохранить текущий стиль в файл",
+                on_click=self._export_preset,
+            ),
+            Text(
+                text="Загрузить выбранный стиль из файла",
+                on_click=self._import_selected_preset,
+            ),
+            Text(
+                text="Применить красивый стартовый стиль",
+                on_click=self._apply_recommended_style,
+            ),
+            Text(
+                text="Где лежат файлы профилей",
+                on_click=self._show_preset_help,
+            ),
+            Text(
+                text="Как пользоваться",
+                on_click=self._show_help,
+            ),
+            Text(
+                text="Совет по шрифтам",
+                on_click=self._show_font_tip,
+            ),
+        ]
+
+    def on_send_message_hook(self, _account, params):
+        if not self._is_enabled():
+            return HookResult()
+        if not hasattr(params, "message") or not isinstance(params.message, str):
+            return HookResult()
+
+        message = cleanup_text(params.message)
+        peer = safe_int(getattr(params, "peer", 0))
+        reply_to_msg = getattr(params, "replyToMsg", None)
+        reply_to_top_msg = getattr(params, "replyToTopMsg", None)
+        schedule_date = getattr(params, "scheduleDate", None)
+
+        play_command = self._command()
+        if play_command and message.lower() == play_command.lower():
+            if peer == 0:
+                self._show_error("Не удалось определить чат для отправки карточки.")
+                return HookResult(strategy=HookStrategy.CANCEL, params=params)
+            self._show_info("Готовлю карточку текущего трека...")
+            run_on_queue(lambda: self._handle_send_card(peer, reply_to_msg, reply_to_top_msg, schedule_date))
+            return HookResult(strategy=HookStrategy.CANCEL, params=params)
+
+        share_command = self._share_command()
+        if share_command and message.lower() == share_command.lower():
+            if peer == 0:
+                self._show_error("Не удалось определить чат для отправки стиля.")
+                return HookResult(strategy=HookStrategy.CANCEL, params=params)
+            run_on_queue(lambda: self._share_preset_to_chat(peer, reply_to_msg, reply_to_top_msg, schedule_date))
+            return HookResult(strategy=HookStrategy.CANCEL, params=params)
+
+        import_reply_command = self._import_reply_command()
+        if import_reply_command and message.lower() == import_reply_command.lower():
+            run_on_queue(lambda: self._import_preset_from_reply(params))
+            return HookResult(strategy=HookStrategy.CANCEL, params=params)
+
+        return HookResult()
+
+    def _is_enabled(self):
+        return bool(self.get_setting("enabled", True))
+
+    def _command(self):
+        raw = cleanup_text(self.get_setting("command", ".play") or ".play")
+        return raw if raw else ".play"
+
+    def _share_command(self):
+        raw = cleanup_text(self.get_setting("share_command", ".style") or ".style")
+        return raw if raw else ".style"
+
+    def _import_reply_command(self):
+        raw = cleanup_text(self.get_setting("import_reply_command", ".usestyle") or ".usestyle")
+        return raw if raw else ".usestyle"
+
+    def _context(self):
+        fragment = get_last_fragment()
+        try:
+            if fragment is not None:
+                activity = fragment.getParentActivity()
+                if activity is not None:
+                    return activity
+        except Exception:
+            pass
+        return None
+
+    def _show_info(self, message):
+        try:
+            BulletinHelper.show_info(message, get_last_fragment())
+        except Exception:
+            log(f"[NowCard] info: {message}")
+
+    def _show_success(self, message):
+        try:
+            BulletinHelper.show_success(message, get_last_fragment())
+        except Exception:
+            log(f"[NowCard] success: {message}")
+
+    def _show_error(self, message):
+        try:
+            BulletinHelper.show_error(message, get_last_fragment())
+        except Exception:
+            log(f"[NowCard] error: {message}")
+
+    def _show_help(self, *_args):
+        self._show_info(
+            "Запусти трек в музыкальном приложении, потом в чате напиши "
+            + self._command()
+            + ". Плагин не отправит текст, а вместо этого сделает фото-карточку. "
+            + "А чтобы поделиться настройками карточки, используй кнопку в меню чата "
+            + "или команду "
+            + self._share_command()
+            + "."
+        )
+
+    def _show_font_tip(self, *_args):
+        self._show_info(
+            "Если в названии трека или артисте есть кириллица, лучше всего работают Sans и Serif. "
+            "Mono и Condensed теперь тоже используют безопасные кириллические фолбэки, но если хочешь "
+            "максимально чистый вид, начни с Sans или Serif."
+        )
+
+    def _run_migrations(self):
+        marker = "__missing__"
+        if not self.get_setting("_migrated_420", False):
+            old_footer_enabled = bool(self.get_setting("show_footer", True))
+            old_footer_text = cleanup_text(self.get_setting("footer_text", "Music Player") or "Music Player")
+            branding_mode = self.get_setting("branding_mode", marker)
+            branding_text = cleanup_text(self.get_setting("branding_text", "") or "")
+
+            if branding_mode == marker:
+                self.set_setting("branding_mode", 2 if old_footer_enabled else 0)
+            if not branding_text:
+                self.set_setting(
+                    "branding_text",
+                    "Music Player" if old_footer_text == "Shared from Music Player" else old_footer_text,
+                )
+
+            self.set_setting("show_caption", False)
+            self.set_setting("_migrated_420", True)
+
+        for key, default in SETTINGS_DEFAULTS.items():
+            current = self.get_setting(key, marker)
+            if current == marker or current is None:
+                self.set_setting(key, default)
+
+    def _preset_dir(self):
+        return PRESET_DIR
+
+    def _preset_files(self):
+        directory = self._preset_dir()
+        try:
+            os.makedirs(directory, exist_ok=True)
+        except Exception:
+            pass
+        files = []
+        try:
+            for name in sorted(os.listdir(directory)):
+                if name.lower().endswith(PRESET_EXT):
+                    files.append(os.path.join(directory, name))
+        except Exception as error:
+            log(f"[NowCard] preset scan error: {error}")
+        return files
+
+    def _preset_items(self):
+        files = self._preset_files()
+        if not files:
+            return ["Нет файлов"]
+        return [os.path.splitext(os.path.basename(path))[0] for path in files]
+
+    def _selected_preset_path(self):
+        files = self._preset_files()
+        if not files:
+            return ""
+        index = safe_int(self.get_setting("preset_selector", 0), 0)
+        index = clamp(index, 0, len(files) - 1)
+        return files[index]
+
+    def _sanitize_preset_name(self, value):
+        raw = cleanup_text(value) or "my_style"
+        allowed = []
+        for char in raw:
+            if char.isalnum() or char in (" ", "-", "_"):
+                allowed.append(char)
+        cleaned = "".join(allowed).strip().replace(" ", "_")
+        return cleaned[:48] or "my_style"
+
+    def _collect_preset_settings(self):
+        data = {}
+        for key in PRESET_KEYS:
+            try:
+                value = self.get_setting(key, SETTINGS_DEFAULTS.get(key))
+                if value is None:
+                    value = SETTINGS_DEFAULTS.get(key)
+                data[key] = value
+            except Exception:
+                default = SETTINGS_DEFAULTS.get(key)
+                if default is not None:
+                    data[key] = default
+        return data
+
+    def _export_preset(self, *_args):
+        directory = self._preset_dir()
+        try:
+            os.makedirs(directory, exist_ok=True)
+            name = self._sanitize_preset_name(self.get_setting("preset_name", "my_style"))
+            path = os.path.join(directory, name + PRESET_EXT)
+            payload = {
+                "plugin": __id__,
+                "version": __version__,
+                "name": name,
+                "settings": self._collect_preset_settings(),
+            }
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+            self._show_success("Профиль сохранён: " + name)
+        except Exception as error:
+            log(f"[NowCard] export preset error: {error}")
+            self._show_error("Не удалось сохранить файл профиля.")
+
+    def _import_selected_preset(self, *_args):
+        path = self._selected_preset_path()
+        if not path:
+            self._show_error("В папке профилей пока нет файлов.")
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            settings = payload.get("settings", {})
+            if not isinstance(settings, dict):
+                raise ValueError("settings is not a dict")
+            for key in PRESET_KEYS:
+                if key in settings:
+                    self.set_setting(key, settings[key])
+            self._show_success("Профиль загружен. Если экран не обновился сразу, просто открой настройки ещё раз.")
+        except Exception as error:
+            log(f"[NowCard] import preset error: {error}")
+            self._show_error("Не удалось загрузить файл профиля.")
+
+    def _apply_recommended_style(self, *_args):
+        recommended = {
+            "theme_selector": 4,
+            "color_style": 0,
+            "layout_selector": 0,
+            "font_selector": 0,
+            "accent_strength": 2,
+            "overlay_strength": 1,
+            "glow_strength": 2,
+            "blur_background": True,
+            "rounded_cover": True,
+            "show_cover_shadow": True,
+            "show_border": True,
+            "show_text_shadow": True,
+            "show_label": True,
+            "title_lines_selector": 1,
+            "artist_lines_selector": 1,
+            "show_album": False,
+            "show_state": True,
+            "show_progress": True,
+            "progress_style_selector": 1,
+            "show_time_labels": True,
+            "branding_mode": 2,
+            "branding_position": 0,
+            "branding_text": "Music Player",
+            "show_caption": False,
+        }
+        for key, value in recommended.items():
+            self.set_setting(key, value)
+        self._show_success("Красивый стартовый стиль применён.")
+
+    def _show_preset_help(self, *_args):
+        self._show_info(
+            "Самый удобный способ обмена теперь такой: в чате жмёшь три точки и выбираешь "
+            + "'Поделиться настройками Now Card'. Потом другой человек зажимает это сообщение, "
+            + "открывает меню плагинов и жмёт 'Применить конфиг Now Card'. Файлы в папке /storage/emulated/0/Download/Now Card Presets "
+            + "остались как запасной способ."
+        )
+
+    def _style_summary(self):
+        theme = THEME_ITEMS[clamp(safe_int(self.get_setting("theme_selector", 0), 0), 0, len(THEME_ITEMS) - 1)]
+        color = COLOR_ITEMS[clamp(safe_int(self.get_setting("color_style", 0), 0), 0, len(COLOR_ITEMS) - 1)]
+        layout = LAYOUT_ITEMS[clamp(safe_int(self.get_setting("layout_selector", 0), 0), 0, len(LAYOUT_ITEMS) - 1)]
+        font = FONT_ITEMS[clamp(safe_int(self.get_setting("font_selector", 0), 0), 0, len(FONT_ITEMS) - 1)]
+        return f"{theme} / {color} / {layout} / {font}"
+
+    def _encode_shared_preset(self):
+        payload = {
+            "plugin": __id__,
+            "version": __version__,
+            "name": self._sanitize_preset_name(self.get_setting("preset_name", "my_style")),
+            "summary": self._style_summary(),
+            "settings": self._collect_preset_settings(),
+        }
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        compressed = zlib.compress(raw, 9)
+        return base64.urlsafe_b64encode(compressed).decode("ascii").rstrip("=")
+
+    def _decode_shared_preset(self, text):
+        if not text:
+            return None
+        match = re.search(r"NOWCARD::([A-Za-z0-9_-]+)", str(text))
+        if not match:
+            return None
+        encoded = match.group(1)
+        padding = "=" * ((4 - len(encoded) % 4) % 4)
+        try:
+            raw = base64.urlsafe_b64decode(encoded + padding)
+            payload = json.loads(zlib.decompress(raw).decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except Exception as error:
+            log(f"[NowCard] decode share preset error: {error}")
+            return None
+
+    def _shared_preset_message(self):
+        payload = self._encode_shared_preset()
+        name = self._sanitize_preset_name(self.get_setting("preset_name", "my_style"))
+        summary = self._style_summary()
+        return (
+            "*Now Card Config*\n"
+            f"*Стиль:* `{name}`\n"
+            f"*Вид:* `{summary}`\n"
+            "Зажми это сообщение, открой меню плагинов и нажми *Применить конфиг Now Card*.\n"
+            "```cfg\n"
+            f"{SHARE_MARKER}{payload}\n"
+            "```"
+        )
+
+    def _extract_message_text(self, message):
+        if message is None:
+            return ""
+        for attr in ("messageText", "caption"):
+            try:
+                value = getattr(message, attr, None)
+                if value:
+                    return str(value)
+            except Exception:
+                pass
+        try:
+            owner = getattr(message, "messageOwner", None)
+            if owner is not None:
+                raw = getattr(owner, "message", None)
+                if raw:
+                    return str(raw)
+        except Exception:
+            pass
+        return ""
+
+    def _save_imported_preset_file(self, payload):
+        try:
+            directory = self._preset_dir()
+            os.makedirs(directory, exist_ok=True)
+            name = self._sanitize_preset_name(payload.get("name", "shared_style"))
+            if not name.startswith("shared_"):
+                name = "shared_" + name
+            path = os.path.join(directory, name + PRESET_EXT)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+        except Exception as error:
+            log(f"[NowCard] save imported preset error: {error}")
+
+    def _apply_shared_preset_payload(self, payload, announce=True):
+        if not isinstance(payload, dict):
+            self._show_error("В сообщении нет валидного стиля Now Card.")
+            return
+        settings = payload.get("settings", {})
+        if not isinstance(settings, dict):
+            self._show_error("Формат стиля повреждён.")
+            return
+        for key in PRESET_KEYS:
+            if key in settings:
+                value = settings[key]
+                if value is None:
+                    value = SETTINGS_DEFAULTS.get(key)
+                if value is not None:
+                    self.set_setting(key, value)
+        self._save_imported_preset_file(payload)
+        if announce:
+            summary = cleanup_text(payload.get("summary")) or self._style_summary()
+            self._show_success("Стиль применён: " + summary)
+
+    def _share_preset_to_chat(self, peer, reply_to_msg=None, reply_to_top_msg=None, schedule_date=None):
+        try:
+            shared_text = self._shared_preset_message()
+            params = {
+                "peer": peer,
+            }
+            try:
+                parsed = parse_markdown(shared_text)
+                params["message"] = parsed.text
+                params["entities"] = [entity.to_tlrpc_object() for entity in parsed.entities]
+            except Exception:
+                plain = (
+                    "Now Card Config\n"
+                    f"Style: {self._sanitize_preset_name(self.get_setting('preset_name', 'my_style'))}\n"
+                    f"Look: {self._style_summary()}\n"
+                    "Открой меню плагинов на этом сообщении и нажми 'Применить конфиг Now Card'.\n"
+                    f"{SHARE_MARKER}{self._encode_shared_preset()}"
+                )
+                params["message"] = plain
+            if reply_to_msg is not None:
+                params["replyToMsg"] = reply_to_msg
+            if reply_to_top_msg is not None:
+                params["replyToTopMsg"] = reply_to_top_msg
+            if schedule_date is not None:
+                params["scheduleDate"] = schedule_date
+            send_message(params)
+            self._show_success("Настройки отправлены в чат.")
+        except Exception as error:
+            log(f"[NowCard] share preset send error: {error}")
+            self._show_error("Не удалось отправить настройки в чат.")
+
+    def _share_preset_from_chat_menu(self, context):
+        peer = safe_int(context.get("dialog_id") if isinstance(context, dict) else 0, 0)
+        if peer == 0:
+            self._show_error("Не удалось определить текущий чат.")
+            return
+        run_on_queue(lambda: self._share_preset_to_chat(peer))
+
+    def _import_preset_from_message_menu(self, context):
+        message = context.get("message") if isinstance(context, dict) else None
+        text = self._extract_message_text(message)
+        payload = self._decode_shared_preset(text)
+        if payload is None:
+            self._show_error("Это сообщение не содержит конфиг Now Card.")
+            return
+        self._apply_shared_preset_payload(payload)
+
+    def _import_preset_from_reply(self, params):
+        reply_message = getattr(params, "replyToMsg", None)
+        text = self._extract_message_text(reply_message)
+        payload = self._decode_shared_preset(text)
+        if payload is None:
+            self._show_error("Ответь на сообщение с конфигом Now Card.")
+            return
+        self._apply_shared_preset_payload(payload)
+
+    def _ensure_app_available(self):
+        context = self._context()
+        if context is None:
+            return False
+        try:
+            return context.getPackageManager().getLaunchIntentForPackage(PACKAGE_NAME) is not None
+        except Exception:
+            return False
+
+    def _query_status(self):
+        if not self._ensure_app_available():
+            return None
+        context = self._context()
+        if context is None:
+            return None
+
+        cursor = None
+        try:
+            cursor = context.getContentResolver().query(Uri.parse(STATUS_URI), None, None, None, None)
+            if cursor is None or not cursor.moveToFirst():
+                return None
+
+            def read_string(name):
+                idx = cursor.getColumnIndex(name)
+                if idx < 0 or cursor.isNull(idx):
+                    return ""
+                return cleanup_text(cursor.getString(idx))
+
+            def read_long(name):
+                idx = cursor.getColumnIndex(name)
+                if idx < 0 or cursor.isNull(idx):
+                    return 0
+                return safe_int(cursor.getLong(idx), 0)
+
+            return {
+                "title": read_string("title"),
+                "artist": read_string("artist"),
+                "album": read_string("album"),
+                "is_playing": read_long("is_playing") == 1,
+                "has_song": read_long("has_song") == 1,
+                "duration_ms": read_long("duration_ms"),
+                "position_ms": read_long("effective_position_ms") or read_long("position_ms"),
+                "cover_uri": read_string("cover_uri"),
+            }
+        except Exception as error:
+            log(f"[NowCard] status query error: {error}")
+            return None
+        finally:
+            try:
+                if cursor is not None:
+                    cursor.close()
+            except Exception:
+                pass
+
+    def _copy_cover_to_local_file(self, content_uri):
+        if not content_uri:
+            return ""
+        context = self._context()
+        if context is None:
+            return ""
+
+        cache_dir = os.path.join(context.getCacheDir().getAbsolutePath(), "now_card")
+        os.makedirs(cache_dir, exist_ok=True)
+        out_path = os.path.join(cache_dir, "current_cover.bin")
+        stream = None
+        try:
+            stream = context.getContentResolver().openInputStream(Uri.parse(content_uri))
+            if stream is None:
+                return ""
+            Files.copy(stream, Paths.get(out_path), StandardCopyOption.REPLACE_EXISTING)
+            return out_path
+        except Exception as error:
+            log(f"[NowCard] copy cover error: {error}")
+            return ""
+        finally:
+            try:
+                if stream is not None:
+                    stream.close()
+            except Exception:
+                pass
+
+    def _pick_font_paths(self, selector, bold=False, unicode_safe=False):
+        sans_bold = [
+            "/system/fonts/NotoSans-Bold.ttf",
+            "/system/fonts/NotoSansDisplay-Bold.ttf",
+            "/system/fonts/Roboto-Bold.ttf",
+            "/system/fonts/RobotoStatic-Bold.ttf",
+            "/system/fonts/DroidSans-Bold.ttf",
+        ]
+        sans_regular = [
+            "/system/fonts/NotoSans-Regular.ttf",
+            "/system/fonts/NotoSansDisplay-Regular.ttf",
+            "/system/fonts/Roboto-Regular.ttf",
+            "/system/fonts/RobotoStatic-Regular.ttf",
+            "/system/fonts/DroidSans.ttf",
+        ]
+        serif_bold = [
+            "/system/fonts/NotoSerif-Bold.ttf",
+            "/system/fonts/DroidSerif-Bold.ttf",
+            "/system/fonts/NotoSans-Bold.ttf",
+        ]
+        serif_regular = [
+            "/system/fonts/NotoSerif-Regular.ttf",
+            "/system/fonts/DroidSerif-Regular.ttf",
+            "/system/fonts/NotoSans-Regular.ttf",
+        ]
+        mono_bold = [
+            "/system/fonts/NotoSansMono-Regular.ttf",
+            "/system/fonts/DroidSansMono.ttf",
+            "/system/fonts/RobotoMono-Regular.ttf",
+            "/system/fonts/NotoSans-Bold.ttf",
+        ]
+        mono_regular = [
+            "/system/fonts/NotoSansMono-Regular.ttf",
+            "/system/fonts/DroidSansMono.ttf",
+            "/system/fonts/RobotoMono-Regular.ttf",
+            "/system/fonts/NotoSans-Regular.ttf",
+        ]
+        condensed_bold = [
+            "/system/fonts/NotoSans_Condensed-Bold.ttf",
+            "/system/fonts/NotoSansCondensed-Bold.ttf",
+            "/system/fonts/RobotoCondensed-Bold.ttf",
+            "/system/fonts/NotoSans-Bold.ttf",
+        ]
+        condensed_regular = [
+            "/system/fonts/NotoSans_Condensed-Regular.ttf",
+            "/system/fonts/NotoSansCondensed-Regular.ttf",
+            "/system/fonts/RobotoCondensed-Regular.ttf",
+            "/system/fonts/NotoSans-Regular.ttf",
+        ]
+
+        mapping = {
+            0: (sans_bold, sans_regular),
+            1: (serif_bold, serif_regular),
+            2: (mono_bold, mono_regular),
+            3: (condensed_bold, condensed_regular),
+        }
+        primary_bold, primary_regular = mapping.get(selector, mapping[0])
+
+        if unicode_safe:
+            if selector == 1:
+                return serif_bold if bold else serif_regular
+            if selector == 2:
+                return mono_bold if bold else mono_regular
+            if selector == 3:
+                return condensed_bold if bold else condensed_regular
+            return sans_bold if bold else sans_regular
+
+        paths = list(primary_bold if bold else primary_regular)
+        fallback = sans_bold if bold else sans_regular
+        for item in fallback:
+            if item not in paths:
+                paths.append(item)
+        return paths
+
+    def _load_font(self, selector, size, bold=False, sample_text=""):
+        unicode_safe = has_unicode_text(sample_text)
+        adjusted_size = int(size)
+        if selector == 3 and unicode_safe:
+            adjusted_size = int(size * 0.93)
+        for path in self._pick_font_paths(selector, bold=bold, unicode_safe=unicode_safe):
+            try:
+                if path and os.path.exists(path):
+                    return ImageFont.truetype(path, adjusted_size)
+            except Exception:
+                pass
+        for path in self._pick_font_paths(0, bold=bold, unicode_safe=True):
+            try:
+                if path and os.path.exists(path):
+                    return ImageFont.truetype(path, adjusted_size)
+            except Exception:
+                pass
+        return ImageFont.load_default()
+
+    def _wrap_lines(self, draw, text, font, max_width, max_lines=2):
+        text = cleanup_text(text) or ""
+        if not text:
+            return [""]
+
+        words = text.split()
+        if not words:
+            return [text]
+
+        lines = []
+        current = words[0]
+        for word in words[1:]:
+            candidate = current + " " + word
+            if draw.textlength(candidate, font=font) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+
+        normalized = []
+        for line in lines:
+            if draw.textlength(line, font=font) <= max_width:
+                normalized.append(line)
+                continue
+            current = ""
+            for char in line:
+                candidate = current + char
+                if draw.textlength(candidate, font=font) <= max_width:
+                    current = candidate
+                else:
+                    normalized.append(current)
+                    current = char
+            if current:
+                normalized.append(current)
+        lines = normalized or [text]
+
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            last = lines[-1]
+            while last and draw.textlength(last + "…", font=font) > max_width:
+                last = last[:-1]
+            lines[-1] = (last or "").rstrip() + "…"
+        return lines
+
+    def _palette_from_cover(self, cover):
+        if cover is None:
+            return {
+                "base": (20, 24, 32),
+                "accent": (92, 190, 255),
+                "accent_soft": (126, 144, 255),
+                "text": (255, 255, 255),
+                "muted": (208, 215, 226),
+            }
+
+        try:
+            sample = cover.convert("RGB").resize((48, 48), RESAMPLE)
+            mean = ImageStat.Stat(sample).mean
+            base = tuple(int(v) for v in mean[:3])
+            accent = (
+                clamp(int(base[0] * 0.72 + 74), 34, 255),
+                clamp(int(base[1] * 1.04 + 78), 48, 255),
+                clamp(int(base[2] * 1.16 + 104), 60, 255),
+            )
+            accent_soft = blend_color(accent, (255, 255, 255), 0.18)
+            luminance = (base[0] * 0.299 + base[1] * 0.587 + base[2] * 0.114) / 255.0
+            text = (22, 26, 34) if luminance > 0.72 else (255, 255, 255)
+            muted = blend_color(text, base, 0.48)
+            return {
+                "base": base,
+                "accent": accent,
+                "accent_soft": accent_soft,
+                "text": text,
+                "muted": muted,
+            }
+        except Exception:
+            return {
+                "base": (20, 24, 32),
+                "accent": (92, 190, 255),
+                "accent_soft": (126, 144, 255),
+                "text": (255, 255, 255),
+                "muted": (208, 215, 226),
+            }
+
+    def _override_palette(self, palette, color_style):
+        presets = {
+            1: {"base": (16, 18, 24), "accent": (94, 176, 255), "accent_soft": (103, 134, 255), "text": (255, 255, 255), "muted": (204, 212, 224)},
+            2: {"base": (244, 246, 250), "accent": (78, 117, 250), "accent_soft": (133, 161, 255), "text": (20, 24, 32), "muted": (92, 101, 122)},
+            3: {"base": (56, 22, 36), "accent": (255, 110, 149), "accent_soft": (255, 168, 194), "text": (255, 245, 249), "muted": (237, 209, 220)},
+            4: {"base": (14, 36, 52), "accent": (64, 210, 255), "accent_soft": (97, 142, 255), "text": (240, 250, 255), "muted": (189, 216, 226)},
+            5: {"base": (16, 42, 30), "accent": (72, 225, 167), "accent_soft": (117, 242, 188), "text": (243, 255, 248), "muted": (183, 220, 196)},
+            6: {"base": (62, 28, 18), "accent": (255, 148, 78), "accent_soft": (255, 200, 120), "text": (255, 247, 239), "muted": (233, 205, 186)},
+            7: {"base": (36, 24, 60), "accent": (171, 111, 255), "accent_soft": (213, 162, 255), "text": (249, 243, 255), "muted": (210, 197, 229)},
+        }
+        return presets.get(color_style, palette)
+
+    def _apply_accent_strength(self, palette, level):
+        tuned = dict(palette)
+        if level <= 0:
+            tuned["accent"] = blend_color(tuned["accent"], tuned["base"], 0.34)
+            tuned["accent_soft"] = blend_color(tuned["accent_soft"], tuned["base"], 0.40)
+        elif level == 1:
+            tuned["accent"] = blend_color(tuned["accent"], (255, 255, 255), 0.18)
+            tuned["accent_soft"] = blend_color(tuned["accent_soft"], tuned["accent"], 0.34)
+        else:
+            tuned["accent"] = blend_color(tuned["accent"], (255, 255, 255), 0.42)
+            tuned["accent_soft"] = blend_color(tuned["accent_soft"], tuned["accent"], 0.58)
+            tuned["base"] = blend_color(tuned["base"], tuned["accent"], 0.08)
+        return tuned
+
+    def _album_text(self, raw_value, title_text="", artist_text=""):
+        text = cleanup_text(raw_value)
+        if not text:
+            return ""
+        low = text.lower()
+        if low in {
+            "download",
+            "downloads",
+            "telegram",
+            "exteragram",
+            "music",
+            "audio",
+            "unknown",
+            "unknown album",
+            "local",
+            "folder",
+        }:
+            return ""
+        title_low = cleanup_text(title_text).lower()
+        artist_low = cleanup_text(artist_text).lower()
+        if low == title_low or low == artist_low:
+            return ""
+        if "/storage/" in low or low.endswith(".mp3") or low.endswith(".ogg") or low.endswith(".flac"):
+            return ""
+        return text
+
+    def _visual_options(self):
+        branding_mode = safe_int(self.get_setting("branding_mode", -1), -1)
+        if branding_mode < 0:
+            branding_mode = 2 if bool(self.get_setting("show_footer", True)) else 0
+        branding_text = cleanup_text(self.get_setting("branding_text", self.get_setting("footer_text", "Music Player")) or "Music Player")
+        return {
+            "blur_background": bool(self.get_setting("blur_background", True)),
+            "rounded_cover": bool(self.get_setting("rounded_cover", True)),
+            "show_progress": bool(self.get_setting("show_progress", True)),
+            "progress_style": safe_int(self.get_setting("progress_style_selector", 0), 0),
+            "show_album": bool(self.get_setting("show_album", True)),
+            "show_state": bool(self.get_setting("show_state", True)),
+            "branding_mode": branding_mode,
+            "branding_position": safe_int(self.get_setting("branding_position", self.get_setting("footer_position", 0)), 0),
+            "branding_text": branding_text or "Music Player",
+            "show_label": bool(self.get_setting("show_label", True)),
+            "show_time_labels": bool(self.get_setting("show_time_labels", True)),
+            "show_cover_shadow": bool(self.get_setting("show_cover_shadow", True)),
+            "show_border": bool(self.get_setting("show_border", True)),
+            "show_text_shadow": bool(self.get_setting("show_text_shadow", True)),
+            "accent_strength": safe_int(self.get_setting("accent_strength", 1), 1),
+            "overlay_strength": safe_int(self.get_setting("overlay_strength", 1), 1),
+            "glow_strength": safe_int(self.get_setting("glow_strength", 1), 1),
+            "title_lines": safe_int(self.get_setting("title_lines_selector", 1), 1) + 1,
+            "artist_lines": safe_int(self.get_setting("artist_lines_selector", 1), 1) + 1,
+        }
+
+    def _center_crop(self, image, size):
+        if image is None:
+            return None
+        return ImageOps.fit(image.convert("RGB"), size, method=RESAMPLE)
+
+    def _rounded_mask(self, size, radius):
+        mask = Image.new("L", size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0], size[1]), radius, fill=255)
+        return mask
+
+    def _paint_gradient(self, draw, size, top_color, bottom_color):
+        width, height = size
+        for y in range(height):
+            t = y / float(max(height - 1, 1))
+            draw.line((0, y, width, y), fill=blend_color(top_color, bottom_color, t))
+
+    def _add_glow(self, canvas, center, radius, color, alpha):
+        if alpha <= 0 or radius <= 0:
+            return
+        layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        glow = ImageDraw.Draw(layer)
+        glow.ellipse(
+            (center[0] - radius, center[1] - radius, center[0] + radius, center[1] + radius),
+            fill=with_alpha(color, alpha),
+        )
+        blur_radius = max(12, int(radius * 0.22))
+        layer = layer.filter(ImageFilter.GaussianBlur(blur_radius))
+        canvas.alpha_composite(layer)
+
+    def _draw_cover_shadow(self, canvas, rect, rounded=True, strength=1.0):
+        radius = 36 if rounded else 10
+        layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        shadow = ImageDraw.Draw(layer)
+        offset_x = 10
+        offset_y = 16
+        shadow_rect = (rect[0] + offset_x, rect[1] + offset_y, rect[2] + offset_x, rect[3] + offset_y)
+        shadow.rounded_rectangle(shadow_rect, radius, fill=(0, 0, 0, int(95 * strength)))
+        layer = layer.filter(ImageFilter.GaussianBlur(int(22 * strength)))
+        canvas.alpha_composite(layer)
+
+    def _draw_placeholder_cover(self, canvas, rect, palette, rounded=True):
+        radius = 34 if rounded else 10
+        width = rect[2] - rect[0]
+        height = rect[3] - rect[1]
+        layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        shadow = ImageDraw.Draw(layer)
+        shadow.rounded_rectangle(rect, radius, fill=with_alpha(blend_color(palette["base"], (255, 255, 255), 0.06), 255))
+        canvas.alpha_composite(layer)
+
+        grad = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        grad_draw = ImageDraw.Draw(grad)
+        top = blend_color(palette["accent_soft"], palette["base"], 0.55)
+        bottom = blend_color(palette["base"], (0, 0, 0), 0.18)
+        for y in range(height):
+            t = y / float(max(height - 1, 1))
+            grad_draw.line((0, y, width, y), fill=blend_color(top, bottom, t) + (255,))
+
+        badge = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        badge_draw = ImageDraw.Draw(badge)
+        cx = width * 0.50
+        cy = height * 0.54
+        fill = with_alpha((255, 255, 255), 236)
+        badge_draw.ellipse((cx - 84, cy + 44, cx - 20, cy + 108), fill=fill)
+        badge_draw.ellipse((cx + 6, cy + 20, cx + 70, cy + 84), fill=fill)
+        badge_draw.rectangle((cx - 18, cy - 112, cx + 28, cy + 44), fill=fill)
+        badge_draw.polygon([(cx + 28, cy - 112), (cx + 118, cy - 72), (cx + 28, cy - 26)], fill=fill)
+        badge = badge.filter(ImageFilter.GaussianBlur(0.3))
+        grad.alpha_composite(badge)
+
+        if rounded:
+            mask = self._rounded_mask((width, height), radius)
+            canvas.paste(grad, (rect[0], rect[1]), mask)
+        else:
+            canvas.paste(grad, (rect[0], rect[1]))
+
+    def _apply_cover(self, canvas, cover, rect, palette, rounded=True, show_shadow=True, show_border=True):
+        radius = 36 if rounded else 10
+        if show_shadow:
+            self._draw_cover_shadow(canvas, rect, rounded=rounded, strength=1.0)
+
+        if cover is None:
+            self._draw_placeholder_cover(canvas, rect, palette, rounded=rounded)
+        else:
+            width = rect[2] - rect[0]
+            height = rect[3] - rect[1]
+            cropped = self._center_crop(cover, (width, height)).convert("RGBA")
+            if rounded:
+                mask = self._rounded_mask((width, height), radius)
+                canvas.paste(cropped, (rect[0], rect[1]), mask)
+            else:
+                canvas.paste(cropped, (rect[0], rect[1]))
+
+        if show_border:
+            border = ImageDraw.Draw(canvas)
+            border.rounded_rectangle(rect, radius, outline=with_alpha((255, 255, 255), 38), width=2)
+
+    def _draw_text(self, draw, xy, text, font, fill, shadow=False, shadow_alpha=110):
+        if shadow:
+            shadow_fill = (0, 0, 0, shadow_alpha)
+            draw.text((xy[0], xy[1] + 4), text, font=font, fill=shadow_fill)
+        draw.text(xy, text, font=font, fill=fill)
+
+    def _draw_progress_wave(self, draw, rect, ratio, palette):
+        x1, y1, x2, y2 = rect
+        width = max(1, x2 - x1)
+        height = max(1, y2 - y1)
+        draw.rounded_rectangle(rect, height // 2, fill=with_alpha((255, 255, 255), 40))
+        fill_width = int(width * clamp(ratio, 0.0, 1.0))
+        if fill_width <= 0:
+            return
+
+        points = [(x1, y2), (x1, y1 + height * 0.55)]
+        step = max(12, int(width / 24))
+        amplitude = max(2.0, height * 0.16)
+        base_y = y1 + height * 0.50
+        for offset in range(0, fill_width + step, step):
+            px = x1 + min(offset, fill_width)
+            py = base_y + math.sin(offset / 18.0) * amplitude
+            points.append((px, py))
+        points.append((x1 + fill_width, y2))
+        points.append((x1, y2))
+        draw.polygon(points, fill=palette["accent"])
+        if fill_width > height:
+            draw.ellipse((x1 + fill_width - height, y1, x1 + fill_width, y2), fill=palette["accent"])
+
+    def _draw_progress_segments(self, draw, rect, ratio, palette):
+        x1, y1, x2, y2 = rect
+        width = max(1, x2 - x1)
+        segments = 18
+        gap = 6
+        segment_width = max(10, int((width - gap * (segments - 1)) / segments))
+        filled = int(round(segments * clamp(ratio, 0.0, 1.0)))
+        current_x = x1
+        radius = max(6, (y2 - y1) // 2)
+        for index in range(segments):
+            seg_rect = (current_x, y1, current_x + segment_width, y2)
+            color = palette["accent"] if index < filled else with_alpha((255, 255, 255), 42)
+            draw.rounded_rectangle(seg_rect, radius, fill=color)
+            current_x += segment_width + gap
+
+    def _draw_progress(self, draw, rect, ratio, palette, style=0):
+        ratio = clamp(ratio, 0.0, 1.0)
+        if style == 1:
+            self._draw_progress_wave(draw, rect, ratio, palette)
+            return
+        if style == 2:
+            self._draw_progress_segments(draw, rect, ratio, palette)
+            return
+        draw.rounded_rectangle(rect, 16, fill=with_alpha((255, 255, 255), 44))
+        fill_width = int((rect[2] - rect[0]) * ratio)
+        if fill_width > 0:
+            draw.rounded_rectangle((rect[0], rect[1], rect[0] + fill_width, rect[3]), 16, fill=palette["accent"])
+
+    def _draw_chip(self, draw, x, y, text, color, text_color, font):
+        width = int(draw.textlength(text, font=font)) + 42
+        rect = (x, y, x + width, y + 46)
+        draw.rounded_rectangle(rect, 22, fill=with_alpha(color, 184))
+        draw.text((x + 20, y + 8), text, font=font, fill=text_color)
+        return rect[2]
+
+    def _draw_brand_badge(self, draw, x, y, text, font, palette):
+        label = cleanup_text(text) or "Music Player"
+        text_width = int(draw.textlength(label, font=font))
+        badge_width = text_width + 90
+        rect = (x, y, x + badge_width, y + 52)
+        draw.rounded_rectangle(
+            rect,
+            26,
+            fill=with_alpha(blend_color(palette["base"], palette["accent_soft"], 0.18), 178),
+            outline=with_alpha((255, 255, 255), 34),
+            width=2,
+        )
+        icon_x = x + 12
+        icon_y = y + 10
+        draw.rounded_rectangle((icon_x, icon_y, icon_x + 30, icon_y + 30), 10, fill=with_alpha(palette["accent"], 218))
+        stem_x = icon_x + 16
+        draw.ellipse((icon_x + 5, icon_y + 18, icon_x + 14, icon_y + 27), fill=(255, 255, 255, 245))
+        draw.rectangle((stem_x, icon_y + 6, stem_x + 4, icon_y + 21), fill=(255, 255, 255, 245))
+        draw.polygon([(stem_x + 4, icon_y + 6), (stem_x + 14, icon_y + 10), (stem_x + 4, icon_y + 15)], fill=(255, 255, 255, 245))
+        draw.text((x + 52, y + 11), label, font=font, fill=(255, 255, 255, 232))
+        return rect
+
+    def _draw_branding(self, draw, size, text, font, palette, position, mode=0, extra_bottom=0):
+        if not text:
+            return
+        width, height = size
+        margin_x = 86 if width > 1100 else 56
+        margin_y = 38 if height > 900 else 28
+
+        if mode == 0:
+            return
+
+        if mode == 1:
+            text_w = int(draw.textlength(text, font=font))
+            text_h = font.size
+        else:
+            text_w = int(draw.textlength(cleanup_text(text) or "Music Player", font=font)) + 90
+            text_h = 52
+
+        positions = {
+            0: (margin_x, height - margin_y - text_h - extra_bottom),
+            1: (width - margin_x - text_w, height - margin_y - text_h - extra_bottom),
+            2: (width - margin_x - text_w, margin_y),
+            3: (margin_x, margin_y),
+        }
+        x, y = positions.get(position, positions[0])
+        if mode == 1:
+            draw.text((x, y), text, font=font, fill=with_alpha(palette["muted"], 198))
+        else:
+            self._draw_brand_badge(draw, x, y, text, font, palette)
+
+    def _caption_for_status(self, status):
+        if not self.get_setting("show_caption", True):
+            return ""
+        template = cleanup_text(self.get_setting("caption_template", "{artist} — {track}") or "{artist} — {track}")
+        state = "playing" if status.get("is_playing") else "paused"
+        return (
+            template
+            .replace("{track}", status.get("title", ""))
+            .replace("{artist}", status.get("artist", ""))
+            .replace("{album}", status.get("album", ""))
+            .replace("{app}", "Music Player")
+            .replace("{state}", state)
+        ).strip()
+
+    def _draw_title_artist_block(self, draw, start_x, start_y, max_width, title_font, artist_font, title_text, artist_text, palette, options):
+        current_y = start_y
+        for line in self._wrap_lines(draw, title_text, title_font, max_width, options["title_lines"]):
+            self._draw_text(draw, (start_x, current_y), line, title_font, palette["text"], shadow=options["show_text_shadow"], shadow_alpha=118)
+            current_y += title_font.size + 6
+
+        artist_fill = with_alpha(palette["muted"], 238)
+        for line in self._wrap_lines(draw, artist_text, artist_font, max_width, options["artist_lines"]):
+            self._draw_text(draw, (start_x, current_y), line, artist_font, artist_fill, shadow=options["show_text_shadow"], shadow_alpha=92)
+            current_y += artist_font.size + 5
+        return current_y
+
+    def _build_card(self, status, cover_path):
+        layout_selector = safe_int(self.get_setting("layout_selector", 0), 0)
+        theme_selector = safe_int(self.get_setting("theme_selector", 0), 0)
+        font_selector = safe_int(self.get_setting("font_selector", 0), 0)
+        color_style = safe_int(self.get_setting("color_style", 0), 0)
+        options = self._visual_options()
+
+        size = (1080, 1080) if layout_selector == 2 else (1280, 720)
+        cover = None
+        if cover_path and os.path.exists(cover_path):
+            try:
+                cover = Image.open(cover_path).convert("RGB")
+            except Exception as error:
+                log(f"[NowCard] open cover error: {error}")
+                cover = None
+
+        palette = self._apply_accent_strength(
+            self._override_palette(self._palette_from_cover(cover), color_style),
+            options["accent_strength"],
+        )
+
+        card = Image.new("RGBA", size, palette["base"] + (255,))
+        draw = ImageDraw.Draw(card)
+
+        if theme_selector == 0:
+            self._render_apple(card, draw, size, cover, palette, font_selector, layout_selector, options, status)
+        elif theme_selector == 1:
+            self._render_glass(card, draw, size, cover, palette, font_selector, layout_selector, options, status)
+        elif theme_selector == 2:
+            self._render_minimal(card, draw, size, cover, palette, font_selector, layout_selector, options, status)
+        elif theme_selector == 3:
+            self._render_poster(card, draw, size, cover, palette, font_selector, layout_selector, options, status)
+        else:
+            self._render_aura(card, draw, size, cover, palette, font_selector, layout_selector, options, status)
+
+        context = self._context()
+        if context is None:
+            return ""
+        cache_dir = os.path.join(context.getCacheDir().getAbsolutePath(), "now_card")
+        os.makedirs(cache_dir, exist_ok=True)
+        out_path = os.path.join(cache_dir, "now_card_output.png")
+        card.save(out_path, format="PNG", optimize=True, compress_level=2 if self.get_setting("high_quality", True) else 5)
+        return out_path
+
+    def _render_apple(self, card, draw, size, cover, palette, font_selector, layout_selector, options, status):
+        width, height = size
+        album_text = self._album_text(status.get("album"), status.get("title"), status.get("artist"))
+        top = blend_color(palette["base"], palette["accent_soft"], 0.20)
+        bottom = blend_color(palette["base"], (8, 10, 16), 0.46)
+        self._paint_gradient(draw, size, top, bottom)
+
+        if cover is not None and options["blur_background"]:
+            bg = self._center_crop(cover, size).filter(ImageFilter.GaussianBlur(36))
+            card.alpha_composite(bg.convert("RGBA"))
+            overlay_alpha = {0: 96, 1: 126, 2: 152}.get(options["overlay_strength"], 126)
+            overlay = Image.new("RGBA", size, with_alpha(blend_color(palette["base"], (0, 0, 0), 0.24), overlay_alpha))
+            card.alpha_composite(overlay)
+
+        glow_alpha = {0: 0, 1: 68, 2: 104, 3: 144}.get(options["glow_strength"], 68)
+        self._add_glow(card, (width - 180, 120), 250, palette["accent_soft"], glow_alpha)
+        self._add_glow(card, (180, height - 90), 210, palette["accent"], glow_alpha // 2)
+
+        panel = (54, 54, width - 54, height - 54)
+        draw.rounded_rectangle(
+            panel,
+            42,
+            fill=with_alpha(blend_color(palette["base"], (0, 0, 0), 0.10), 210),
+            outline=with_alpha((255, 255, 255), 26 if options["show_border"] else 0),
+            width=2 if options["show_border"] else 0,
+        )
+
+        if layout_selector == 2:
+            cover_rect = (165, 112, width - 165, 610)
+            text_x = 104
+            text_y = 648
+            text_width = width - 208
+        elif layout_selector == 1:
+            cover_rect = (width - 466, 108, width - 108, height - 108)
+            text_x = 110
+            text_y = 126
+            text_width = width - 622
+        else:
+            cover_rect = (108, 108, 466, height - 108)
+            text_x = 520
+            text_y = 126
+            text_width = width - 628
+
+        self._apply_cover(card, cover, cover_rect, palette, rounded=options["rounded_cover"], show_shadow=options["show_cover_shadow"], show_border=options["show_border"])
+
+        label_font = self._load_font(font_selector, 28, False, "NOW PLAYING")
+        title_font = self._load_font(font_selector, 66 if layout_selector != 2 else 70, True, status.get("title"))
+        artist_font = self._load_font(font_selector, 40 if layout_selector != 2 else 44, False, status.get("artist"))
+        small_font = self._load_font(font_selector, 27, False, status.get("album"))
+
+        if options["show_label"]:
+            self._draw_text(draw, (text_x, text_y), "NOW PLAYING", label_font, with_alpha(palette["muted"], 222), shadow=options["show_text_shadow"], shadow_alpha=88)
+            text_y += label_font.size + 18
+            draw.rounded_rectangle((text_x, text_y - 8, text_x + 118, text_y - 2), 3, fill=with_alpha(palette["accent"], 210))
+            text_y += 10
+
+        current_y = self._draw_title_artist_block(
+            draw,
+            text_x,
+            text_y,
+            text_width,
+            title_font,
+            artist_font,
+            status.get("title", "Без названия"),
+            status.get("artist", "Неизвестный артист"),
+            palette,
+            options,
+        )
+
+        chip_y = height - 170
+        chip_x = text_x
+        if options["show_state"]:
+            state_text = "PLAYING" if status.get("is_playing") else "PAUSED"
+            chip_x = self._draw_chip(draw, chip_x, chip_y, state_text, palette["accent"], palette["text"], small_font)
+        if options["show_album"] and album_text:
+            chip_x = self._draw_chip(draw, chip_x + 14, chip_y, album_text[:22], palette["accent_soft"], palette["text"], small_font)
+
+        if options["show_progress"]:
+            ratio = 0.0
+            if safe_int(status.get("duration_ms")) > 0:
+                ratio = safe_int(status.get("position_ms")) / float(max(1, safe_int(status.get("duration_ms"))))
+            bar_rect = (text_x, height - 106, width - 110, height - 78)
+            self._draw_progress(draw, bar_rect, ratio, palette, options["progress_style"])
+            if options["show_time_labels"]:
+                self._draw_text(draw, (text_x, height - 70), format_ms(status.get("position_ms")), small_font, with_alpha(palette["muted"], 224), shadow=options["show_text_shadow"], shadow_alpha=74)
+                duration_text = format_ms(status.get("duration_ms"))
+                duration_w = int(draw.textlength(duration_text, font=small_font))
+                self._draw_text(draw, (width - 110 - duration_w, height - 70), duration_text, small_font, with_alpha(palette["muted"], 224), shadow=options["show_text_shadow"], shadow_alpha=74)
+
+        self._draw_branding(
+            draw,
+            size,
+            options["branding_text"],
+            small_font,
+            palette,
+            options["branding_position"],
+            mode=options["branding_mode"],
+            extra_bottom=92 if options["show_progress"] else 0,
+        )
+
+    def _render_glass(self, card, draw, size, cover, palette, font_selector, layout_selector, options, status):
+        width, height = size
+        album_text = self._album_text(status.get("album"), status.get("title"), status.get("artist"))
+        if cover is not None:
+            bg = self._center_crop(cover, size)
+            if options["blur_background"]:
+                bg = bg.filter(ImageFilter.GaussianBlur(28))
+            card.alpha_composite(bg.convert("RGBA"))
+        overlay_alpha = {0: 112, 1: 146, 2: 174}.get(options["overlay_strength"], 146)
+        overlay = Image.new("RGBA", size, with_alpha(blend_color(palette["base"], (0, 0, 0), 0.24), overlay_alpha))
+        card.alpha_composite(overlay)
+
+        glow_alpha = {0: 0, 1: 62, 2: 96, 3: 136}.get(options["glow_strength"], 62)
+        self._add_glow(card, (width - 180, 90), 240, palette["accent"], glow_alpha)
+        self._add_glow(card, (width // 2, height - 60), 220, palette["accent_soft"], glow_alpha // 2)
+
+        panel = (76, 68, width - 76, height - 68)
+        draw.rounded_rectangle(
+            panel,
+            46,
+            fill=with_alpha((18, 22, 32), 172),
+            outline=with_alpha((255, 255, 255), 38 if options["show_border"] else 0),
+            width=2 if options["show_border"] else 0,
+        )
+
+        if layout_selector == 2:
+            cover_rect = (206, 116, width - 206, 534)
+            text_x = 120
+            text_y = 586
+            text_width = width - 240
+        elif layout_selector == 1:
+            cover_rect = (width - 440, 118, width - 118, height - 118)
+            text_x = 122
+            text_y = 126
+            text_width = width - 592
+        else:
+            cover_rect = (118, 118, 440, height - 118)
+            text_x = 490
+            text_y = 126
+            text_width = width - 610
+
+        self._apply_cover(card, cover, cover_rect, palette, rounded=options["rounded_cover"], show_shadow=options["show_cover_shadow"], show_border=options["show_border"])
+
+        label_font = self._load_font(font_selector, 24, False, "NOW PLAYING")
+        title_font = self._load_font(font_selector, 62 if layout_selector != 2 else 66, True, status.get("title"))
+        artist_font = self._load_font(font_selector, 36 if layout_selector != 2 else 40, False, status.get("artist"))
+        small_font = self._load_font(font_selector, 26, False, status.get("album"))
+
+        if options["show_label"]:
+            self._draw_text(draw, (text_x, text_y), "NOW PLAYING", label_font, with_alpha((255, 255, 255), 184), shadow=options["show_text_shadow"], shadow_alpha=78)
+            text_y += label_font.size + 14
+            draw.rounded_rectangle((text_x, text_y - 6, text_x + 108, text_y), 3, fill=with_alpha(palette["accent"], 214))
+            text_y += 8
+
+        current_y = self._draw_title_artist_block(
+            draw,
+            text_x,
+            text_y,
+            text_width,
+            title_font,
+            artist_font,
+            status.get("title", "Без названия"),
+            status.get("artist", "Неизвестный артист"),
+            palette,
+            options,
+        )
+
+        if options["show_album"] and album_text:
+            self._draw_text(draw, (text_x, current_y + 14), album_text, small_font, with_alpha(palette["muted"], 218), shadow=options["show_text_shadow"], shadow_alpha=70)
+            current_y += small_font.size + 20
+
+        if options["show_state"]:
+            state_text = "PLAYING" if status.get("is_playing") else "PAUSED"
+            self._draw_chip(draw, text_x, current_y + 12, state_text, palette["accent"], palette["text"], small_font)
+
+        if options["show_progress"]:
+            ratio = safe_int(status.get("position_ms")) / float(max(1, safe_int(status.get("duration_ms"))))
+            bar_rect = (text_x, height - 114, width - 118, height - 84)
+            self._draw_progress(draw, bar_rect, ratio, palette, options["progress_style"])
+            if options["show_time_labels"]:
+                self._draw_text(draw, (text_x, height - 68), format_ms(status.get("position_ms")), small_font, with_alpha((255, 255, 255), 214), shadow=options["show_text_shadow"], shadow_alpha=74)
+                duration_text = format_ms(status.get("duration_ms"))
+                duration_w = int(draw.textlength(duration_text, font=small_font))
+                self._draw_text(draw, (width - 118 - duration_w, height - 68), duration_text, small_font, with_alpha((255, 255, 255), 214), shadow=options["show_text_shadow"], shadow_alpha=74)
+
+        self._draw_branding(
+            draw,
+            size,
+            options["branding_text"],
+            small_font,
+            {"base": palette["base"], "accent": palette["accent"], "accent_soft": palette["accent_soft"], "muted": (255, 255, 255)},
+            options["branding_position"],
+            mode=options["branding_mode"],
+            extra_bottom=94 if options["show_progress"] else 0,
+        )
+
+    def _render_minimal(self, card, draw, size, cover, palette, font_selector, layout_selector, options, status):
+        width, height = size
+        album_text = self._album_text(status.get("album"), status.get("title"), status.get("artist"))
+        is_light = palette["text"][0] < 80
+        bg = blend_color(palette["base"], (255, 255, 255), 0.06 if not is_light else 0.01)
+        draw.rectangle((0, 0, width, height), fill=bg)
+
+        accent_line = with_alpha(palette["accent"], 190)
+        margin = 96 if width > 1100 else 74
+        draw.rounded_rectangle((margin, 84, width - margin, 92), 4, fill=accent_line)
+        draw.rounded_rectangle((margin, height - 92, width - margin, height - 84), 4, fill=with_alpha(palette["muted"], 122))
+
+        if layout_selector == 2:
+            cover_rect = (240, 118, width - 240, 478)
+            text_x = 110
+            text_y = 548
+            text_width = width - 220
+        elif layout_selector == 1:
+            cover_rect = (width - 402, 126, width - 126, 398)
+            text_x = 110
+            text_y = 154
+            text_width = width - 566
+        else:
+            cover_rect = (110, 126, 382, 398)
+            text_x = 430
+            text_y = 154
+            text_width = width - 540
+
+        self._apply_cover(card, cover, cover_rect, palette, rounded=options["rounded_cover"], show_shadow=options["show_cover_shadow"], show_border=options["show_border"])
+
+        label_font = self._load_font(font_selector, 22, False, "NOW PLAYING")
+        title_font = self._load_font(font_selector, 54 if layout_selector != 2 else 58, True, status.get("title"))
+        artist_font = self._load_font(font_selector, 34 if layout_selector != 2 else 36, False, status.get("artist"))
+        small_font = self._load_font(font_selector, 25, False, status.get("album"))
+
+        if options["show_label"]:
+            self._draw_text(draw, (text_x, text_y), "NOW PLAYING", label_font, with_alpha(palette["muted"], 204), shadow=False)
+            text_y += label_font.size + 14
+            draw.rounded_rectangle((text_x, text_y - 8, text_x + 92, text_y - 2), 3, fill=with_alpha(palette["accent"], 192))
+            text_y += 8
+
+        current_y = self._draw_title_artist_block(
+            draw,
+            text_x,
+            text_y,
+            text_width,
+            title_font,
+            artist_font,
+            status.get("title", "Без названия"),
+            status.get("artist", "Неизвестный артист"),
+            palette,
+            options,
+        )
+
+        details = []
+        if options["show_album"] and album_text:
+            details.append(album_text)
+        if options["show_state"]:
+            details.append("playing" if status.get("is_playing") else "paused")
+        if details:
+            self._draw_text(draw, (text_x, current_y + 16), " • ".join(details), small_font, with_alpha(palette["muted"], 220), shadow=False)
+
+        if options["show_progress"]:
+            ratio = safe_int(status.get("position_ms")) / float(max(1, safe_int(status.get("duration_ms"))))
+            bar_rect = (110, height - 144, width - 110, height - 118)
+            self._draw_progress(draw, bar_rect, ratio, palette, options["progress_style"])
+            if options["show_time_labels"]:
+                draw.text((110, height - 108), format_ms(status.get("position_ms")), font=small_font, fill=with_alpha(palette["muted"], 208))
+                duration_text = format_ms(status.get("duration_ms"))
+                draw.text((width - 110 - int(draw.textlength(duration_text, font=small_font)), height - 108), duration_text, font=small_font, fill=with_alpha(palette["muted"], 208))
+
+        self._draw_branding(
+            draw,
+            size,
+            options["branding_text"],
+            small_font,
+            palette,
+            options["branding_position"],
+            mode=options["branding_mode"],
+            extra_bottom=90 if options["show_progress"] else 0,
+        )
+
+    def _render_poster(self, card, draw, size, cover, palette, font_selector, layout_selector, options, status):
+        width, height = size
+        album_text = self._album_text(status.get("album"), status.get("title"), status.get("artist"))
+        if cover is not None:
+            bg = self._center_crop(cover, size)
+            if options["blur_background"]:
+                bg = bg.filter(ImageFilter.GaussianBlur(22))
+            card.alpha_composite(bg.convert("RGBA"))
+        self._paint_gradient(
+            draw,
+            size,
+            blend_color(palette["accent_soft"], palette["base"], 0.22),
+            blend_color(palette["base"], (0, 0, 0), 0.48),
+        )
+
+        overlay_alpha = {0: 96, 1: 126, 2: 154}.get(options["overlay_strength"], 126)
+        card.alpha_composite(Image.new("RGBA", size, with_alpha(blend_color(palette["base"], (0, 0, 0), 0.26), overlay_alpha)))
+
+        glow_alpha = {0: 0, 1: 88, 2: 132, 3: 178}.get(options["glow_strength"], 88)
+        self._add_glow(card, (int(width * 0.18), int(height * 0.22)), 260, palette["accent_soft"], glow_alpha)
+        self._add_glow(card, (int(width * 0.84), int(height * 0.80)), 230, palette["accent"], glow_alpha // 2)
+
+        if layout_selector == 2:
+            cover_rect = (128, 96, width - 128, 566)
+            panel = (86, 618, width - 86, height - 86)
+            text_x = panel[0] + 34
+            text_y = panel[1] + 34
+            text_width = panel[2] - panel[0] - 68
+            progress_rect = (panel[0] + 34, panel[3] - 82, panel[2] - 34, panel[3] - 54)
+            branding_offset = 110
+        else:
+            cover_rect = (84, 84, 470, height - 84)
+            panel = (518, 84, width - 84, height - 84)
+            text_x = panel[0] + 34
+            text_y = panel[1] + 34
+            text_width = panel[2] - panel[0] - 68
+            progress_rect = (panel[0] + 34, panel[3] - 82, panel[2] - 34, panel[3] - 54)
+            branding_offset = 108
+
+        draw.rounded_rectangle(
+            panel,
+            38,
+            fill=with_alpha(blend_color(palette["base"], (0, 0, 0), 0.10), 182),
+            outline=with_alpha((255, 255, 255), 28 if options["show_border"] else 0),
+            width=2 if options["show_border"] else 0,
+        )
+        draw.rounded_rectangle((panel[0] + 34, panel[1] + 22, panel[0] + 170, panel[1] + 30), 4, fill=with_alpha(palette["accent"], 224))
+
+        self._apply_cover(card, cover, cover_rect, palette, rounded=options["rounded_cover"], show_shadow=True, show_border=options["show_border"])
+
+        label_font = self._load_font(font_selector, 24, False, "NOW PLAYING")
+        title_font = self._load_font(font_selector, 58 if layout_selector != 2 else 66, True, status.get("title"))
+        artist_font = self._load_font(font_selector, 34 if layout_selector != 2 else 38, False, status.get("artist"))
+        small_font = self._load_font(font_selector, 26, False, status.get("album"))
+
+        current_y = text_y
+        if options["show_label"]:
+            self._draw_text(draw, (text_x, current_y), "POSTER MODE", label_font, with_alpha((255, 255, 255), 196), shadow=options["show_text_shadow"], shadow_alpha=76)
+            current_y += label_font.size + 16
+
+        current_y = self._draw_title_artist_block(
+            draw,
+            text_x,
+            current_y,
+            text_width,
+            title_font,
+            artist_font,
+            status.get("title", "Без названия"),
+            status.get("artist", "Неизвестный артист"),
+            {"text": (255, 255, 255), "muted": blend_color((255, 255, 255), palette["base"], 0.24)},
+            options,
+        )
+
+        if options["show_album"] and album_text:
+            self._draw_text(draw, (text_x, current_y + 12), album_text, small_font, with_alpha((255, 255, 255), 192), shadow=options["show_text_shadow"], shadow_alpha=68)
+            current_y += small_font.size + 20
+
+        if options["show_state"]:
+            state_text = "PLAYING" if status.get("is_playing") else "PAUSED"
+            chip_end = self._draw_chip(draw, text_x, current_y + 14, state_text, palette["accent"], (255, 255, 255), small_font)
+            if options["show_album"] and album_text:
+                self._draw_chip(draw, chip_end + 12, current_y + 14, album_text[:18], palette["accent_soft"], (255, 255, 255), small_font)
+
+        if options["show_progress"]:
+            ratio = safe_int(status.get("position_ms")) / float(max(1, safe_int(status.get("duration_ms"))))
+            self._draw_progress(draw, progress_rect, ratio, palette, options["progress_style"])
+            if options["show_time_labels"]:
+                self._draw_text(draw, (progress_rect[0], progress_rect[3] + 12), format_ms(status.get("position_ms")), small_font, with_alpha((255, 255, 255), 204), shadow=options["show_text_shadow"], shadow_alpha=64)
+                duration_text = format_ms(status.get("duration_ms"))
+                duration_w = int(draw.textlength(duration_text, font=small_font))
+                self._draw_text(draw, (progress_rect[2] - duration_w, progress_rect[3] + 12), duration_text, small_font, with_alpha((255, 255, 255), 204), shadow=options["show_text_shadow"], shadow_alpha=64)
+
+        self._draw_branding(
+            draw,
+            size,
+            options["branding_text"],
+            small_font,
+            {"base": palette["base"], "accent": palette["accent"], "accent_soft": palette["accent_soft"], "muted": (255, 255, 255)},
+            options["branding_position"],
+            mode=options["branding_mode"],
+            extra_bottom=branding_offset if options["show_progress"] else 0,
+        )
+
+    def _render_aura(self, card, draw, size, cover, palette, font_selector, layout_selector, options, status):
+        width, height = size
+        album_text = self._album_text(status.get("album"), status.get("title"), status.get("artist"))
+        top = blend_color(palette["base"], palette["accent_soft"], 0.16)
+        bottom = blend_color(palette["base"], (4, 6, 12), 0.54)
+        self._paint_gradient(draw, size, top, bottom)
+
+        if cover is not None and options["blur_background"]:
+            bg = self._center_crop(cover, size).filter(ImageFilter.GaussianBlur(34))
+            card.alpha_composite(bg.convert("RGBA"))
+            card.alpha_composite(Image.new("RGBA", size, with_alpha(blend_color(palette["base"], (0, 0, 0), 0.26), 128)))
+
+        glow_alpha = {0: 0, 1: 84, 2: 132, 3: 176}.get(options["glow_strength"], 84)
+        self._add_glow(card, (width // 2, height // 3), 280, palette["accent"], glow_alpha)
+        self._add_glow(card, (width // 2, int(height * 0.72)), 240, palette["accent_soft"], glow_alpha // 2)
+
+        panel = (68, 68, width - 68, height - 68)
+        draw.rounded_rectangle(
+            panel,
+            48,
+            fill=with_alpha(blend_color(palette["base"], (0, 0, 0), 0.06), 168),
+            outline=with_alpha((255, 255, 255), 28 if options["show_border"] else 0),
+            width=2 if options["show_border"] else 0,
+        )
+
+        if layout_selector == 2:
+            cover_size = 428
+            cover_rect = ((width - cover_size) // 2, 116, (width + cover_size) // 2, 116 + cover_size)
+            text_x = 110
+            text_width = width - 220
+            text_y = 602
+        else:
+            cover_size = 310
+            cover_rect = ((width - cover_size) // 2, 104, (width + cover_size) // 2, 104 + cover_size)
+            text_x = 130
+            text_width = width - 260
+            text_y = 454
+
+        self._apply_cover(card, cover, cover_rect, palette, rounded=options["rounded_cover"], show_shadow=True, show_border=options["show_border"])
+
+        label_font = self._load_font(font_selector, 26, False, "NOW PLAYING")
+        title_font = self._load_font(font_selector, 64 if layout_selector != 2 else 68, True, status.get("title"))
+        artist_font = self._load_font(font_selector, 36 if layout_selector != 2 else 40, False, status.get("artist"))
+        small_font = self._load_font(font_selector, 26, False, status.get("album"))
+
+        current_y = text_y
+        if options["show_label"]:
+            label = "NOW PLAYING"
+            label_w = int(draw.textlength(label, font=label_font))
+            self._draw_text(draw, ((width - label_w) // 2, current_y), label, label_font, with_alpha((255, 255, 255), 188), shadow=options["show_text_shadow"], shadow_alpha=70)
+            current_y += label_font.size + 16
+
+        title_lines = self._wrap_lines(draw, status.get("title", "Без названия"), title_font, text_width, options["title_lines"])
+        for line in title_lines:
+            line_w = int(draw.textlength(line, font=title_font))
+            self._draw_text(draw, ((width - line_w) // 2, current_y), line, title_font, palette["text"], shadow=options["show_text_shadow"], shadow_alpha=118)
+            current_y += title_font.size + 6
+
+        artist_lines = self._wrap_lines(draw, status.get("artist", "Неизвестный артист"), artist_font, text_width, options["artist_lines"])
+        for line in artist_lines:
+            line_w = int(draw.textlength(line, font=artist_font))
+            self._draw_text(draw, ((width - line_w) // 2, current_y), line, artist_font, with_alpha(palette["muted"], 230), shadow=options["show_text_shadow"], shadow_alpha=90)
+            current_y += artist_font.size + 4
+
+        chip_y = current_y + 18
+        chip_x = width // 2 - 10
+        if options["show_state"]:
+            state_text = "PLAYING" if status.get("is_playing") else "PAUSED"
+            state_w = int(draw.textlength(state_text, font=small_font)) + 42
+            chip_x = (width - state_w) // 2
+            self._draw_chip(draw, chip_x, chip_y, state_text, palette["accent"], palette["text"], small_font)
+            chip_x += state_w
+        if options["show_album"] and album_text:
+            album = album_text[:22]
+            album_w = int(draw.textlength(album, font=small_font)) + 42
+            total_w = album_w
+            if options["show_state"]:
+                total_w += 14
+            if not options["show_state"]:
+                chip_x = (width - album_w) // 2
+            else:
+                chip_x = (width - ((int(draw.textlength("PLAYING" if status.get("is_playing") else "PAUSED", font=small_font)) + 42) + 14 + album_w)) // 2 + (int(draw.textlength("PLAYING" if status.get("is_playing") else "PAUSED", font=small_font)) + 42) + 14
+            self._draw_chip(draw, chip_x, chip_y, album, palette["accent_soft"], palette["text"], small_font)
+
+        if options["show_progress"]:
+            ratio = safe_int(status.get("position_ms")) / float(max(1, safe_int(status.get("duration_ms"))))
+            bar_rect = (110 if layout_selector == 2 else 132, height - 118, width - (110 if layout_selector == 2 else 132), height - 88)
+            self._draw_progress(draw, bar_rect, ratio, palette, options["progress_style"])
+            if options["show_time_labels"]:
+                self._draw_text(draw, (bar_rect[0], height - 74), format_ms(status.get("position_ms")), small_font, with_alpha((255, 255, 255), 212), shadow=options["show_text_shadow"], shadow_alpha=72)
+                duration_text = format_ms(status.get("duration_ms"))
+                duration_w = int(draw.textlength(duration_text, font=small_font))
+                self._draw_text(draw, (bar_rect[2] - duration_w, height - 74), duration_text, small_font, with_alpha((255, 255, 255), 212), shadow=options["show_text_shadow"], shadow_alpha=72)
+
+        self._draw_branding(
+            draw,
+            size,
+            options["branding_text"],
+            small_font,
+            {"base": palette["base"], "accent": palette["accent"], "accent_soft": palette["accent_soft"], "muted": (255, 255, 255)},
+            options["branding_position"],
+            mode=options["branding_mode"],
+            extra_bottom=100 if options["show_progress"] else 0,
+        )
+
+    def _handle_send_card(self, peer, reply_to_msg=None, reply_to_top_msg=None, schedule_date=None):
+        if not self._ensure_app_available():
+            self._show_error("Музыкальное приложение не установлено.")
+            return
+
+        status = self._query_status()
+        if not status or not status.get("has_song"):
+            self._show_error("Сейчас в приложении нет активного трека.")
+            return
+
+        cover_path = self._copy_cover_to_local_file(status.get("cover_uri", ""))
+        card_path = self._build_card(status, cover_path)
+        if not card_path or not os.path.exists(card_path):
+            self._show_error("Не удалось собрать карточку трека.")
+            return
+
+        kwargs = {}
+        if reply_to_msg is not None:
+            kwargs["replyToMsg"] = reply_to_msg
+        if reply_to_top_msg is not None:
+            kwargs["replyToTopMsg"] = reply_to_top_msg
+        if schedule_date is not None:
+            kwargs["scheduleDate"] = schedule_date
+
+        try:
+            send_photo(
+                peer,
+                card_path,
+                caption=self._caption_for_status(status),
+                high_quality=bool(self.get_setting("high_quality", True)),
+                **kwargs,
+            )
+            self._show_success("Карточка трека отправлена.")
+        except Exception as error:
+            log(f"[NowCard] send error: {error}")
+            self._show_error("Не удалось отправить карточку трека.")
