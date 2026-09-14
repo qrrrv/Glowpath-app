@@ -1,9 +1,9 @@
-package com.musicplayer.ui.screens
-
 @file:OptIn(
     ExperimentalFoundationApi::class,
     ExperimentalMaterial3Api::class
 )
+
+package com.musicplayer.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
