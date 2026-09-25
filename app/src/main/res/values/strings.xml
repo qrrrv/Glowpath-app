@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Glowpath</string>
+    <string name="channel_name">Воспроизведение музыки</string>
+    <string name="channel_description">Уведомление при воспроизведении музыки</string>
+    <string name="welcome_headline">Твоя музыка,\nвсегда с тобой.</string>
+    <string name="welcome_body">Слушай треки и альбомы, и никогда не теряй любимые песни.</string>
+    <string name="welcome_cta">Начать</string>
+    <string name="welcome_prompt">Готов слушать?</string>
+    <string name="welcome_action">Открыть плеер</string>
+</resources>
