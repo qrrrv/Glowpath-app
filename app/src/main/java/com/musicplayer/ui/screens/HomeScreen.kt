@@ -386,10 +386,21 @@ fun HomeScreen(
                     onSettings       = { showMenu = false; onSettingsClick() }
                 )
             }
+        },
+        floatingActionButton = {
+            if (!isSelectionMode && !isSearching) {
+                ExtendedFloatingActionButton(
+                    onClick = { fileLauncher.launch(arrayOf("audio/*")) },
+                    icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                    text = { Text("Добавить музыку", fontFamily = LocalAppFontFamily.current) },
+                    containerColor = c.primaryContainer,
+                    contentColor = c.onPrimaryContainer
+                )
+            }
         }
     ) { padding ->
         if (sortedSongs.isEmpty()) {
-            EmptyState(
+            Material3EmptyState(
                 onAdd  = { fileLauncher.launch(arrayOf("audio/*")) },
                 onScan = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -428,7 +439,7 @@ fun HomeScreen(
                 ) {
                     if (searchQuery.isBlank()) {
                         item("dashboard_header") {
-                            LibraryDashboardHeader(
+                            Material3LibraryDashboardHeader(
                                 currentSong = currentSong,
                                 displayTitle = currentSong?.let { customTitleMap[it.id] ?: it.title },
                                 displayArtist = currentSong?.let { customArtistMap[it.id] ?: it.artist },
@@ -1905,6 +1916,186 @@ private fun LibraryDashboardHeader(
 }
 
 @Composable
+private fun Material3LibraryDashboardHeader(
+    currentSong: Song?,
+    displayTitle: String?,
+    displayArtist: String?,
+    displayArtUri: Uri?,
+    isPlaying: Boolean,
+    songsCount: Int,
+    artistCount: Int,
+    albumCount: Int,
+    totalDurationMs: Long,
+    accentColor: Color,
+    onCurrentSongClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val stats = listOf(
+        "${songsCount} ${pluralTracks(songsCount)}" to Icons.Rounded.MusicNote,
+        "${artistCount} исполнителей" to Icons.Rounded.Person,
+        "${albumCount} альбомов" to Icons.Rounded.Album,
+        "${formatLibraryDuration(totalDurationMs)} музыки" to Icons.Rounded.Schedule
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Ваша библиотека",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    fontFamily = font
+                )
+                Text(
+                    text = if (currentSong != null) "Продолжайте слушать" else "Добавьте музыку, чтобы начать",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    fontFamily = font
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.LibraryMusic,
+                contentDescription = null,
+                tint = colors.primary,
+                modifier = Modifier.size(30.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            stats.forEach { (label, icon) ->
+                AssistChip(
+                    onClick = {},
+                    label = { Text(label, fontFamily = font) },
+                    leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = colors.surfaceContainerHigh,
+                        labelColor = colors.onSurfaceVariant,
+                        leadingIconContentColor = colors.primary
+                    ),
+                    border = AssistChipDefaults.assistChipBorder(
+                        enabled = true,
+                        borderColor = colors.outlineVariant.copy(alpha = 0.55f)
+                    )
+                )
+            }
+        }
+
+        if (currentSong != null) {
+            Card(
+                onClick = onCurrentSongClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = colors.primaryContainer),
+                border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.18f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(72.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        color = colors.surfaceContainerHighest
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (displayArtUri != null) {
+                                OptimizedAlbumArt(
+                                    uri = displayArtUri,
+                                    title = displayTitle ?: currentSong.title,
+                                    modifier = Modifier.fillMaxSize(),
+                                    targetSize = CoilSize(192, 192)
+                                )
+                            } else {
+                                Icon(
+                                    painter = painterResource(instrumentIconRes(currentSong.id)),
+                                    contentDescription = null,
+                                    tint = colors.onSurfaceVariant,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                            if (isPlaying) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.20f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    PlayingEqIcon(
+                                        isPlaying = true,
+                                        color = colors.onPrimaryContainer,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = if (isPlaying) "Сейчас играет" else "Последний трек",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.onPrimaryContainer.copy(alpha = 0.76f),
+                            fontFamily = font
+                        )
+                        Text(
+                            text = (displayTitle ?: currentSong.title).ifBlank { "Без названия" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onPrimaryContainer,
+                            fontFamily = font,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = displayArtist.takeUnless { it.isNullOrBlank() || it == "<unknown>" } ?: "Неизвестный исполнитель",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onPrimaryContainer.copy(alpha = 0.78f),
+                            fontFamily = font,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    FilledIconButton(
+                        onClick = onCurrentSongClick,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = colors.primary,
+                            contentColor = colors.onPrimary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Rounded.Equalizer else Icons.Rounded.PlayArrow,
+                            contentDescription = "Открыть трек"
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LibraryStatPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     value: String,
@@ -2250,6 +2441,67 @@ private fun formatLibraryDuration(totalDurationMs: Long): String {
 }
 
 @Composable
+private fun Material3EmptyState(
+    onAdd: () -> Unit,
+    onScan: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Column(
+        modifier = modifier.padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            modifier = Modifier.size(96.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = colors.secondaryContainer,
+            tonalElevation = 3.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.LibraryMusic,
+                    contentDescription = null,
+                    tint = colors.onSecondaryContainer,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Text(
+            text = "Музыка пока не добавлена",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurface,
+            fontFamily = font
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Добавьте файл или найдите музыку на устройстве",
+            style = MaterialTheme.typography.bodyLarge,
+            color = colors.onSurfaceVariant,
+            fontFamily = font,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(Modifier.height(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FilledTonalButton(onClick = onAdd) {
+                Icon(Icons.Rounded.Add, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Добавить файл", fontFamily = font)
+            }
+            OutlinedButton(onClick = onScan) {
+                Icon(Icons.Rounded.Search, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Сканировать", fontFamily = font)
+            }
+        }
+    }
+}
+
+@Composable
 fun EmptyState(onAdd: () -> Unit, onScan: () -> Unit, modifier: Modifier = Modifier) {
     val c = MaterialTheme.colorScheme
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -2403,19 +2655,10 @@ fun HomeTopBar(
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f),
-                            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
-                            MaterialTheme.colorScheme.surfaceContainerLow,
-                            MaterialTheme.colorScheme.surface
-                        )
-                    )
-                )
+                .background(MaterialTheme.colorScheme.surface)
         ) {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
+                LargeTopAppBar(
+                colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
