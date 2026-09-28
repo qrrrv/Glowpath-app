@@ -41,6 +41,33 @@ object HitmosRepository {
         OnlineSearchPayload(songs = dedupeSongs(songs), albums = dedupeAlbums(albums))
     }
 
+    /**
+     * Finds a playable Hitmos file for the canonical Deezer artist/title pair.
+     * Fuzzy results are intentionally rejected: this keeps covers, karaoke and
+     * unrelated artists with the same title out of the Deezer result list.
+     */
+    suspend fun findExactTrack(artist: String, title: String): OnlineSong? = withContext(Dispatchers.IO) {
+        if (artist.isBlank() || title.isBlank()) return@withContext null
+
+        val payload = runCatching { search("$artist $title") }.getOrNull()
+            ?: return@withContext null
+        val expectedArtist = normalizeForMatch(artist)
+        val expectedTitle = normalizeForMatch(title)
+
+        payload.songs.firstOrNull { candidate ->
+            candidate.downloadUrl.isNotBlank() &&
+                normalizeForMatch(candidate.artist) == expectedArtist &&
+                normalizeForMatch(candidate.title) == expectedTitle
+        }
+    }
+
+    private fun normalizeForMatch(value: String): String = value
+        .lowercase()
+        .replace('ё', 'е')
+        .replace(Regex("[^\\p{L}\\p{Nd}]+"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
     suspend fun fetchAlbumDetail(albumUrl: String): OnlineAlbumDetail = withContext(Dispatchers.IO) {
         val (doc, baseUrl) = fetchDocument(albumUrl)
         val resolvedAlbumUrl = resolveUrl(albumUrl, baseUrl) ?: albumUrl
