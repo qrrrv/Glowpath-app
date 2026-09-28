@@ -12,9 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.animateFloatAsState
@@ -54,14 +56,33 @@ fun ToggleSegmentButton(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
         label         = "toggleScale"
     )
+    val iconScale by animateFloatAsState(
+        targetValue = when {
+            pressed -> 0.78f
+            active -> 1.08f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "toggleIconScale"
+    )
+    val iconRotation by animateFloatAsState(
+        targetValue = if (pressed) -8f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "toggleIconRotation"
+    )
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = modifier
-            .scale(scale)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(RoundedCornerShape(cornerRadius))
             .background(bgColor)
             .clickable {
                 pressed = true
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onClick()
             }
             .padding(vertical = 14.dp),
@@ -71,7 +92,13 @@ fun ToggleSegmentButton(
             imageVector        = icon,
             contentDescription = contentDescription,
             tint               = iconColor,
-            modifier           = Modifier.size(22.dp)
+            modifier           = Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                    rotationZ = iconRotation
+                }
         )
     }
 

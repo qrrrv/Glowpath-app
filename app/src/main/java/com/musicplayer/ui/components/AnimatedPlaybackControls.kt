@@ -167,6 +167,7 @@ fun AnimatedPlaybackControls(
                     .background(colorPreviousButton)
                     .clickable {
                         lastClicked = PlaybackButtonType.PREVIOUS
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         prevCoroutine.launch { prevIsPlaying = true }
                         onPrevious()
                     },
@@ -261,6 +262,7 @@ fun AnimatedPlaybackControls(
                     .background(colorNextButton)
                     .clickable {
                         lastClicked = PlaybackButtonType.NEXT
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         nextCoroutine.launch { nextIsPlaying = true }
                         onNext()
                     },
