@@ -12,6 +12,7 @@ import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musicplayer.bridge.ExteraGramBridgeBatchItem
@@ -375,6 +376,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {}
 
         try {
+            // Visualizer can call the FFT listener much faster than the UI can render.
+            // Keep the audio engine at its native rate, but publish UI state at 30 Hz.
+            var lastReactiveUpdateMs = 0L
             val visualizer = Visualizer(sessionId).apply {
                 captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
                 setDataCaptureListener(
@@ -390,8 +394,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             fft: ByteArray?,
                             samplingRate: Int
                         ) {
+                            val nowMs = SystemClock.elapsedRealtime()
+                            if (nowMs - lastReactiveUpdateMs < 33L) return
+                            lastReactiveUpdateMs = nowMs
                             if (fft == null || fft.size < 8) {
-                                _audioReactiveLevel.value = _audioReactiveLevel.value * 0.82f
+                                val decayed = _audioReactiveLevel.value * 0.82f
+                                if (abs(decayed - _audioReactiveLevel.value) >= 0.01f) {
+                                    _audioReactiveLevel.value = decayed
+                                }
                                 return
                             }
                             val binCount = fft.size / 2
@@ -408,10 +418,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             val raw = if (bins > 0) bass / bins else 0f
                             val boosted = ((raw - 0.18f).coerceAtLeast(0f) * 1.9f).coerceIn(0f, 1f)
                             val current = _audioReactiveLevel.value
-                            _audioReactiveLevel.value = if (boosted > current) {
+                            val next = if (boosted > current) {
                                 boosted
                             } else {
                                 current * 0.78f + boosted * 0.22f
+                            }
+                            if (abs(next - current) >= 0.01f) {
+                                _audioReactiveLevel.value = next
                             }
                         }
                     },

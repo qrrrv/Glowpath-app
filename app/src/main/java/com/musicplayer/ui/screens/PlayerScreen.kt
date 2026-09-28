@@ -366,6 +366,29 @@ fun AnimatedOrbBackground(
     }
 }
 
+/** Keeps FFT-driven state local to the visual layer instead of recomposing the whole player. */
+@Composable
+private fun PlayerOrbBackground(
+    viewModel: MusicViewModel,
+    color1: Color,
+    color2: Color,
+    color3: Color,
+    baseColor: Color,
+    orbSettings: OrbSettings,
+    modifier: Modifier
+) {
+    val audioReactiveLevel by viewModel.audioReactiveLevel.collectAsState()
+    AnimatedOrbBackground(
+        color1 = color1,
+        color2 = color2,
+        color3 = color3,
+        baseColor = baseColor,
+        orbSettings = orbSettings,
+        modifier = modifier,
+        audioReactiveLevel = audioReactiveLevel
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
@@ -389,7 +412,6 @@ fun PlayerScreen(
     val bridgeQueueUris by viewModel.bridgeQueueUris.collectAsState()
     val customArtMap    by viewModel.customArtMap.collectAsState()
     val orbSettings     by viewModel.orbSettings.collectAsState()
-    val audioReactiveLevel by viewModel.audioReactiveLevel.collectAsState()
 
     if (song == null) { LaunchedEffect(Unit) { onBack() }; return }
 
@@ -543,7 +565,8 @@ fun PlayerScreen(
         val hazeState = remember { HazeState() }
 
         if (orbSettings.showInPlayer) {
-            AnimatedOrbBackground(
+            PlayerOrbBackground(
+                viewModel = viewModel,
                 color1 = animColor1,
                 color2 = animColor2,
                 color3 = animColor3,
@@ -551,8 +574,7 @@ fun PlayerScreen(
                 orbSettings = orbSettings,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = playerBackgroundAlpha },
-                audioReactiveLevel = audioReactiveLevel
+                    .graphicsLayer { alpha = playerBackgroundAlpha }
             )
         } else {
             Box(
