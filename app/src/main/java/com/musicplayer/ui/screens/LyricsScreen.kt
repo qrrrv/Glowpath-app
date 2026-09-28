@@ -22,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -42,17 +41,11 @@ import androidx.compose.ui.unit.sp
 import coil.size.Size as CoilSize
 import com.musicplayer.ui.components.OptimizedAlbumArt
 import com.musicplayer.R
-import com.musicplayer.data.OrbSettings
 import com.musicplayer.data.lyrics.LyricsState
 import com.musicplayer.data.lyrics.SyncedLine
 import com.musicplayer.ui.components.PlayingEqIcon
 import com.musicplayer.ui.theme.*
-import androidx.compose.animation.animateColorAsState
-import androidx.palette.graphics.Palette
-import android.graphics.BitmapFactory
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 import com.musicplayer.viewmodel.MusicViewModel
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -97,7 +90,6 @@ fun LyricsScreen(
     val c       = MaterialTheme.colorScheme
     val haptic  = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val context = androidx.compose.ui.platform.LocalContext.current
 
     val song            by viewModel.currentSong.collectAsState()
     val isPlaying       by viewModel.isPlaying.collectAsState()
@@ -107,8 +99,6 @@ fun LyricsScreen(
     val customArtMap    by viewModel.customArtMap.collectAsState()
     val customTitleMap  by viewModel.customTitleMap.collectAsState()
     val customArtistMap by viewModel.customArtistMap.collectAsState()
-    val orbSettings     by viewModel.orbSettings.collectAsState()
-    val audioReactiveLevel by viewModel.audioReactiveLevel.collectAsState()
     val settings        by viewModel.settings.collectAsState()
     val lyricsFontFamily = LocalAppFontFamily.current
     val lyricsFontScale = settings.lyricsFontScale
@@ -127,35 +117,6 @@ fun LyricsScreen(
     }
 
     val customArtUri = customArtMap[song!!.id]
-
-    // ── Palette for orb colors ────────────────────────────────────────────────
-    data class ArtColors(val dominant: Color, val vibrant: Color, val muted: Color)
-    var artColors by remember(song!!.id) { mutableStateOf<ArtColors?>(null) }
-    val artSourceUri = customArtUri ?: song!!.albumArtUri
-    LaunchedEffect(artSourceUri) {
-        artColors = null
-        artSourceUri?.let { uri ->
-            withContext(Dispatchers.IO) {
-                try {
-                    val bmp = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                    bmp?.let { b ->
-                        val p = Palette.from(b).maximumColorCount(12).generate()
-                        artColors = ArtColors(
-                            Color(p.getDominantColor(0xFF555555.toInt())),
-                            Color(p.getVibrantColor(p.getMutedColor(0xFF666666.toInt()))),
-                            Color(p.getMutedColor(p.getDominantColor(0xFF444444.toInt())))
-                        )
-                        b.recycle()
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    val ct = orbSettings.contrast
-    val animOrbColor1 by animateColorAsState(artColors?.dominant?.copy(0.3f + ct * 0.35f) ?: c.accent.copy(0.4f), tween(800), label = "lc1")
-    val animOrbColor2 by animateColorAsState(artColors?.vibrant?.copy(0.25f + ct * 0.3f) ?: c.accentVar.copy(0.35f), tween(900, 100), label = "lc2")
-    val animOrbColor3 by animateColorAsState(artColors?.muted?.copy(0.2f + ct * 0.25f) ?: c.accentMuted.copy(0.3f), tween(1000, 200), label = "lc3")
 
     // ── Immersive mode ────────────────────────────────────────────────────────
     var immersiveMode   by remember { mutableStateOf(false) }
@@ -301,20 +262,7 @@ fun LyricsScreen(
             }
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { resetImmersive() }
     ) {
-        // ── Orb background (if enabled) ───────────────────────────────────────
-        if (orbSettings.showInLyrics) {
-            AnimatedOrbBackground(
-                color1 = animOrbColor1, color2 = animOrbColor2, color3 = animOrbColor3,
-                baseColor = c.bgDeep.copy(alpha = 0.92f),
-                orbSettings = orbSettings.copy(speed = orbSettings.speed * 0.6f), // slower in lyrics
-                modifier = Modifier.fillMaxSize(),
-                audioReactiveLevel = audioReactiveLevel
-            )
-            // Extra dark scrim so text remains readable
-            Box(Modifier.fillMaxSize().background(c.bgCard.copy(alpha = 0.55f)))
-        } else {
-            Box(Modifier.fillMaxSize().background(c.bgCard))
-        }
+        Box(Modifier.fillMaxSize().background(c.bgCard))
 
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
 
@@ -547,7 +495,6 @@ private fun KaraokeLyricsView(
                         textPrimary = textPrimary,
                         fontFamily = fontFamily,
                         textAlign = textAlign,
-                        enableBlur = curlAnim,
                         modifier = Modifier.animateItem(
                             placementSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
                         )
@@ -634,7 +581,6 @@ private fun KaraokeLine(
     textPrimary: Color,
     fontFamily: FontFamily,
     textAlign: TextAlign,
-    enableBlur: Boolean,
     modifier: Modifier = Modifier
 ) {
     val distance = if (selectedIndex >= 0) abs(index - selectedIndex) else 4
@@ -654,11 +600,6 @@ private fun KaraokeLine(
         animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
         label = "lyrics-line-alpha-$index"
     )
-    val blurRadius by animateFloatAsState(
-        targetValue = if (!enableBlur || selectedLine) 0f else (distance + 1.5f).coerceIn(0f, 10f),
-        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
-        label = "lyrics-line-blur-$index"
-    )
     val fontSize by animateFloatAsState(
         targetValue = (if (selectedLine) 30f else 19f) * fontScale,
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
@@ -670,7 +611,6 @@ private fun KaraokeLine(
         label = "lyrics-line-color-$index"
     )
 
-    val blurModifier = if (blurRadius > 0.5f) Modifier.blur(blurRadius.dp) else Modifier
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -687,7 +627,6 @@ private fun KaraokeLine(
                     pivotFractionY = 1f
                 )
             }
-            .then(blurModifier)
     ) {
         Text(
             text = text,

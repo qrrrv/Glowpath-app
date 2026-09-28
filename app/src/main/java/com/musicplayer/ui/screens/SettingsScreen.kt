@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.musicplayer.data.AppTheme
 import com.musicplayer.data.InterfaceStyle
-import com.musicplayer.data.OrbSettings
 import com.musicplayer.data.PlayerSettings
 import com.musicplayer.data.RepeatMode
 import com.musicplayer.data.SortOrder
@@ -95,14 +94,6 @@ private data class FontDirectorySuggestion(
     val fontCount: Int
 )
 
-private data class OrbScenePreset(
-    val label: String,
-    val subtitle: String,
-    val icon: ImageVector,
-    val color: Color,
-    val apply: (OrbSettings) -> OrbSettings
-)
-
 private data class TypographyStudioPreset(
     val label: String,
     val subtitle: String,
@@ -118,7 +109,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onTransitionsClick: () -> Unit = {},
     onAnimationsClick: () -> Unit = {},
-    onOrbsClick: () -> Unit = {},
     onSleepTimerClick: () -> Unit = {},
     onStatsClick: () -> Unit = {},
     onEqualizerClick: () -> Unit = {},
@@ -240,10 +230,29 @@ fun SettingsScreen(
                 )
             )
 
+            if (settingsQuery.isNotBlank()) {
+                SettingsSearchResults(
+                    query = settingsQuery,
+                    onTheme = { showThemeDialog = true },
+                    onTypography = { showTypographyStudio = true },
+                    onFont = openFontPicker,
+                    onTopBar = onTopBarClick,
+                    onAnimations = onAnimationsClick,
+                    onTransitions = onTransitionsClick,
+                    onSleepTimer = onSleepTimerClick,
+                    onEqualizer = onEqualizerClick,
+                    onStats = onStatsClick,
+                    onAbout = openAbout,
+                    onShuffle = { viewModel.updateSettings(settings.copy(shuffleEnabled = !settings.shuffleEnabled)) },
+                    onWavySeekBar = { viewModel.updateSettings(settings.copy(useWavySeekBar = !settings.useWavySeekBar)) },
+                    onRandomAlbums = { viewModel.updateSettings(settings.copy(showRandomOnlineAlbumsShelf = !settings.showRandomOnlineAlbumsShelf)) }
+                )
+            }
+
             SettingsSectionBlock(
                 title = "Персонализация",
                 subtitle = "Тема, шрифт, типографика и верхняя панель",
-                visible = settingsQuery.isBlank() || settingsQuery.containsAny("персонализация", "тема", "шрифт", "типографика", "панель", "внешний вид")
+                visible = settingsQuery.isBlank()
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Rounded.Palette,
@@ -281,7 +290,7 @@ fun SettingsScreen(
             SettingsSectionBlock(
                 title = "Движение и атмосфера",
                 subtitle = "Анимации, переходы и фоновые эффекты",
-                visible = settingsQuery.isBlank() || settingsQuery.containsAny("движение", "атмосфера", "анимации", "переходы", "орбы", "фон")
+                visible = settingsQuery.isBlank()
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Rounded.AutoAwesome,
@@ -298,20 +307,12 @@ fun SettingsScreen(
                     subtitle = "Кроссфейд и длительность смены треков",
                     onClick = onTransitionsClick
                 )
-                SettingsGroupDivider()
-                SettingsNavigationItem(
-                    icon = Icons.Rounded.BlurOn,
-                    iconBg = MaterialTheme.colorScheme.tertiary,
-                    title = "Орбы",
-                    subtitle = "Фоновая сцена и визуальная реакция",
-                    onClick = onOrbsClick
-                )
             }
 
             SettingsSectionBlock(
                 title = "Воспроизведение",
                 subtitle = "Поведение плеера, сортировка и звук",
-                visible = settingsQuery.isBlank() || settingsQuery.containsAny("воспроизведение", "плеер", "сортировка", "звук", "перемешивание", "эквалайзер", "таймер")
+                visible = settingsQuery.isBlank()
             ) {
                 SettingsSwitchItem(
                     icon = Icons.Rounded.Shuffle,
@@ -379,7 +380,7 @@ fun SettingsScreen(
             SettingsSectionBlock(
                 title = "Сервис и информация",
                 subtitle = "Статистика и сведения о приложении",
-                visible = settingsQuery.isBlank() || settingsQuery.containsAny("сервис", "информация", "статистика", "приложение", "сбросить")
+                visible = settingsQuery.isBlank()
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Rounded.BarChart,
@@ -605,6 +606,73 @@ private fun SettingsOverviewCard(
                     )
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun SettingsSearchResults(
+    query: String,
+    onTheme: () -> Unit,
+    onTypography: () -> Unit,
+    onFont: () -> Unit,
+    onTopBar: () -> Unit,
+    onAnimations: () -> Unit,
+    onTransitions: () -> Unit,
+    onSleepTimer: () -> Unit,
+    onEqualizer: () -> Unit,
+    onStats: () -> Unit,
+    onAbout: () -> Unit,
+    onShuffle: () -> Unit,
+    onWavySeekBar: () -> Unit,
+    onRandomAlbums: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val entries = listOf(
+        Triple("Внешний вид", "Тема и цветовая схема", Icons.Rounded.Palette) to onTheme,
+        Triple("Типографика", "Размер, контраст и превью текста", Icons.Rounded.FormatSize) to onTypography,
+        Triple("Шрифт", "Выбор шрифта приложения", Icons.Rounded.TextFields) to onFont,
+        Triple("Верхняя панель", "Стиль, фон и поведение шапки", Icons.Rounded.Tune) to onTopBar,
+        Triple("Анимации", "Плавность и поведение элементов", Icons.Rounded.AutoAwesome) to onAnimations,
+        Triple("Переходы", "Кроссфейд и смена треков", Icons.Rounded.SwapHoriz) to onTransitions,
+        Triple("Таймер сна", "Остановка после трека и затухание", Icons.Rounded.Bedtime) to onSleepTimer,
+        Triple("Эквалайзер", "Пресеты и настройка звучания", Icons.Rounded.GraphicEq) to onEqualizer,
+        Triple("Перемешивание", "Случайный порядок треков", Icons.Rounded.Shuffle) to onShuffle,
+        Triple("Волнистый ползунок", "Анимированный seek bar в плеере", Icons.Rounded.ShowChart) to onWavySeekBar,
+        Triple("Случайные онлайн-альбомы", "Витрина альбомов на главном экране", Icons.Rounded.Album) to onRandomAlbums,
+        Triple("Статистика", "История прослушивания", Icons.Rounded.BarChart) to onStats,
+        Triple("О приложении", "Glowpath и версия приложения", Icons.Rounded.Info) to onAbout
+    )
+    val needle = query.trim().lowercase()
+    val matches = entries.filter { (entry, _) ->
+        entry.first.lowercase().contains(needle) || entry.second.lowercase().contains(needle)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Результаты поиска",
+            color = colors.primary,
+            fontFamily = LocalAppFontFamily.current,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        if (matches.isEmpty()) {
+            Text(
+                text = "Ничего не найдено",
+                color = colors.onSurfaceVariant,
+                fontFamily = LocalAppFontFamily.current,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+        } else {
+            matches.forEach { (entry, action) ->
+                SettingsNavigationItem(
+                    icon = entry.third,
+                    iconBg = colors.primary,
+                    title = entry.first,
+                    subtitle = entry.second,
+                    onClick = action
+                )
+            }
         }
     }
 }
@@ -2436,157 +2504,6 @@ private fun SettingsInfoPill(
 }
 
 @Composable
-private fun SettingsQuickAccessGrid(
-    fontLabel: String,
-    onThemeClick: () -> Unit,
-    onTypographyClick: () -> Unit,
-    onAnimationsClick: () -> Unit,
-    onOrbsClick: () -> Unit,
-    onTransitionsClick: () -> Unit,
-    onStatsClick: () -> Unit,
-    onEqualizerClick: () -> Unit,
-    onTopBarClick: () -> Unit,
-    onFontClick: () -> Unit,
-    onAboutClick: () -> Unit
-) {
-    val context = LocalContext.current
-    val appVersion = remember(context) {
-        runCatching {
-            @Suppress("DEPRECATION")
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrDefault("0.9")
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            "Разделы",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = LocalAppFontFamily.current,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Palette,
-                accent = IconMauve,
-                title = "Внешний вид",
-                subtitle = "Тема и стиль",
-                onClick = onThemeClick
-            )
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.AutoAwesome,
-                accent = Color(0xFF7C4DFF),
-                title = "Анимации",
-                subtitle = "Новые примеры",
-                onClick = onAnimationsClick
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.SwapHoriz,
-                accent = IconPurple,
-                title = "Переходы",
-                subtitle = "Кроссфейд и длительность",
-                onClick = onTransitionsClick
-            )
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.GraphicEq,
-                accent = IconGold,
-                title = "Эквалайзер",
-                subtitle = "Звук и пресеты",
-                onClick = onEqualizerClick
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.BlurOn,
-                accent = Color(0xFF7B5EA7),
-                title = "Орбы",
-                subtitle = "Фон и реакция",
-                onClick = onOrbsClick
-            )
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.BarChart,
-                accent = IconTeal,
-                title = "Статистика",
-                subtitle = "История и цифры",
-                onClick = onStatsClick
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Tune,
-                accent = Color(0xFF2E6B9E),
-                title = "Шапка",
-                subtitle = "Стиль и фон",
-                onClick = onTopBarClick
-            )
-            Spacer(Modifier.weight(1f))
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.FormatSize,
-                accent = Color(0xFF4E8F77),
-                title = "Типографика",
-                subtitle = "Шаблоны и превью",
-                onClick = onTypographyClick
-            )
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.TextFields,
-                accent = IconMauve,
-                title = "Шрифт",
-                subtitle = fontLabel,
-                onClick = onFontClick
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SettingsQuickLinkCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Info,
-                accent = Color(0xFF229ED9),
-                title = "О приложении",
-                subtitle = "Glowpath · v$appVersion",
-                onClick = onAboutClick
-            )
-            Spacer(Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
 private fun SettingsQuickLinkCard(
     modifier: Modifier = Modifier,
     icon: ImageVector,
@@ -2917,597 +2834,6 @@ fun SettingsSortItem(settings: PlayerSettings, onSortChange: (SortOrder) -> Unit
         }
     }
 }
-// ─────────────────────────────────────────────────────────────────────────────
-// Orb Settings Section — полные настройки орбов
-// ─────────────────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun OrbSettingsScreen(
-    viewModel: MusicViewModel,
-    onBack: () -> Unit
-) {
-    val c = MaterialTheme.colorScheme
-    val font = LocalAppFontFamily.current
-    val orb by viewModel.orbSettings.collectAsState()
-    val audioReactiveLevel by viewModel.audioReactiveLevel.collectAsState()
-    val previewReactiveLevel = if (audioReactiveLevel > 0.02f) audioReactiveLevel else -1f
-    val previewColor1 = c.accent.copy(alpha = (0.3f + orb.contrast * 0.45f).coerceIn(0f, 1f))
-    val previewColor2 = c.accentVar.copy(alpha = (0.25f + orb.contrast * 0.4f).coerceIn(0f, 1f))
-    val previewColor3 = c.accentMuted.copy(alpha = (0.2f + orb.contrast * 0.35f).coerceIn(0f, 1f))
-
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                navigationIcon = {
-                    FilledTonalIconButton(
-                        onClick = onBack,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        ),
-                        modifier = Modifier.padding(start = 8.dp)
-                    ) {
-                        Icon(Icons.Rounded.ArrowBack, "Назад")
-                    }
-                },
-                title = {
-                    Column {
-                        Text("Орбы", color = c.textPrimary, fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 21.sp)
-                        Text("Фиксированный превью сверху и все настройки ниже", color = c.textSecondary, fontFamily = font, fontSize = 11.sp)
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .height(190.dp)
-                    .clip(RoundedCornerShape(24.dp))
-            ) {
-                AnimatedOrbBackground(
-                    color1 = previewColor1,
-                    color2 = previewColor2,
-                    color3 = previewColor3,
-                    baseColor = c.bgDeep,
-                    orbSettings = orb,
-                    modifier = Modifier.fillMaxSize(),
-                    audioReactiveLevel = previewReactiveLevel
-                )
-                Box(Modifier.fillMaxSize().background(c.bgCard.copy(alpha = 0.42f)))
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Text("Живой пример", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("Настраивайте снизу и сразу смотрите результат сверху", color = c.textSecondary, fontFamily = font, fontSize = 10.sp)
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = 20.dp)
-            ) {
-                OrbSettingsSection(
-                    viewModel = viewModel,
-                    showHeader = false,
-                    showPreview = false
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun OrbSettingsSection(
-    viewModel: MusicViewModel,
-    showHeader: Boolean = true,
-    showPreview: Boolean = true
-) {
-    val c    = MaterialTheme.colorScheme
-    val font = LocalAppFontFamily.current
-    val orb  by viewModel.orbSettings.collectAsState()
-    val audioReactiveLevel by viewModel.audioReactiveLevel.collectAsState()
-    val previewReactiveLevel = if (audioReactiveLevel > 0.02f) audioReactiveLevel else -1f
-    val presets = listOf(
-        OrbScenePreset("Спокойно", "мягкий фон", Icons.Rounded.Spa, c.accent.copy(alpha = 0.9f)) { current ->
-            current.copy(
-                speed = 0.75f,
-                contrast = 0.58f,
-                coverage = 0.84f,
-                glowIntensity = 0.48f,
-                bassReactive = false,
-                pulseOnBeat = false,
-                beatScale = 0.12f,
-                flowMode = 0,
-                waveMode = false,
-                trailEffect = false,
-                particleEmission = false,
-                showVisualizerBars = false,
-                borderGlow = false,
-                frostedGlass = false,
-                colorCycleSpeed = 0f
-            )
-        },
-        OrbScenePreset("Bass", "сильная реакция", Icons.Rounded.GraphicEq, c.accentVar.copy(alpha = 0.92f)) { current ->
-            current.copy(
-                speed = 1.35f,
-                contrast = 0.9f,
-                coverage = 1.02f,
-                glowIntensity = 0.84f,
-                bassReactive = true,
-                pulseOnBeat = true,
-                beatScale = 0.34f,
-                flowMode = 1,
-                waveMode = false,
-                trailEffect = true,
-                trailLength = 0.42f,
-                particleEmission = true,
-                particleCount = 24,
-                showVisualizerBars = true
-            )
-        },
-        OrbScenePreset("Glass", "мягкое стекло", Icons.Rounded.BlurOn, c.accentMuted.copy(alpha = 0.92f)) { current ->
-            current.copy(
-                speed = 0.9f,
-                contrast = 0.68f,
-                coverage = 0.92f,
-                glowIntensity = 0.72f,
-                brightness = 0.86f,
-                saturation = 0.62f,
-                bassReactive = false,
-                pulseOnBeat = true,
-                beatScale = 0.16f,
-                trailEffect = false,
-                particleEmission = true,
-                particleCount = 16,
-                borderGlow = true,
-                borderThickness = 0.38f,
-                frostedGlass = true,
-                showVisualizerBars = false
-            )
-        },
-        OrbScenePreset("Aura", "цвет и воздух", Icons.Rounded.AutoAwesome, c.accent.copy(alpha = 0.82f)) { current ->
-            current.copy(
-                speed = 1.08f,
-                contrast = 0.82f,
-                coverage = 1.08f,
-                glowIntensity = 0.76f,
-                brightness = 0.9f,
-                saturation = 1f,
-                bassReactive = true,
-                pulseOnBeat = true,
-                beatScale = 0.22f,
-                flowMode = 3,
-                waveMode = true,
-                trailEffect = true,
-                trailLength = 0.35f,
-                particleEmission = true,
-                particleCount = 18,
-                colorCycleSpeed = 1.2f,
-                showVisualizerBars = false
-            )
-        },
-        OrbScenePreset("Chaos", "мощнее и шире", Icons.Rounded.Bolt, c.accentVar.copy(alpha = 0.85f)) { current ->
-            current.copy(
-                speed = 2f,
-                contrast = 0.94f,
-                coverage = 1.16f,
-                orbCount = 5,
-                glowIntensity = 0.9f,
-                bassReactive = true,
-                pulseOnBeat = true,
-                beatScale = 0.4f,
-                flowMode = 2,
-                trailEffect = true,
-                trailLength = 0.58f,
-                particleEmission = true,
-                particleCount = 28,
-                showVisualizerBars = true,
-                kaleidoscopeMode = false
-            )
-        }
-    )
-
-    val previewColor1 = c.accent.copy(alpha = (0.3f + orb.contrast * 0.45f).coerceIn(0f, 1f))
-    val previewColor2 = c.accentVar.copy(alpha = (0.25f + orb.contrast * 0.4f).coerceIn(0f, 1f))
-    val previewColor3 = c.accentMuted.copy(alpha = (0.2f + orb.contrast * 0.35f).coerceIn(0f, 1f))
-
-    // Табы для категорий настроек
-    var activeTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Базовые", "Форма", "Цвет", "Движение", "Эффекты")
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-
-        if (showHeader) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    Modifier.size(46.dp).clip(MaterialTheme.shapes.medium)
-                        .background(MaterialTheme.colorScheme.tertiaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.AutoAwesome,
-                        null,
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Настройки орбов", color = c.textPrimary, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Анимация фонового эффекта", color = c.textSecondary, fontFamily = font, fontSize = 12.sp)
-                }
-            }
-        }
-
-        if (showPreview) {
-            Box(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    .height(160.dp).clip(RoundedCornerShape(20.dp))
-            ) {
-                AnimatedOrbBackground(
-                    color1 = previewColor1, color2 = previewColor2, color3 = previewColor3,
-                    baseColor = c.bgDeep, orbSettings = orb,
-                    modifier = Modifier.fillMaxSize(),
-                    audioReactiveLevel = previewReactiveLevel
-                )
-                Box(Modifier.fillMaxSize().background(c.bgCard.copy(alpha = 0.45f)))
-                Column(
-                    Modifier.align(Alignment.BottomStart).padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text("Превью орбов", color = c.textPrimary, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("Орбов: ${orb.orbCount}  ·  Скорость: ${"%.1f".format(orb.speed)}×  ·  ${listOf("Дрейф","Орбита","Хаос","Синус")[orb.flowMode.coerceIn(0,3)]}", color = c.textSecondary, fontFamily = font, fontSize = 10.sp)
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-        } else {
-            Spacer(Modifier.height(4.dp))
-        }
-
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text("Сцены орбов", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(presets) { preset ->
-                    Surface(
-                        modifier = Modifier
-                            .width(138.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .clickable { viewModel.updateOrbSettings(preset.apply(orb)) },
-                        color = c.bgCard
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(preset.color.copy(alpha = 0.16f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(preset.icon, null, tint = preset.color, modifier = Modifier.size(18.dp))
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(preset.label, color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Text(preset.subtitle, color = c.textSecondary, fontFamily = font, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // ── Быстрые переключатели ─────────────────────────────────────────────
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OrbQuickToggle("В плеере", orb.showInPlayer, Icons.Rounded.MusicNote, c.accent, Modifier.weight(1f)) { viewModel.updateOrbSettings(orb.copy(showInPlayer = it)) }
-            OrbQuickToggle("В тексте", orb.showInLyrics, Icons.Rounded.Lyrics, c.accentVar, Modifier.weight(1f)) { viewModel.updateOrbSettings(orb.copy(showInLyrics = it)) }
-            OrbQuickToggle("Под бас", orb.bassReactive, Icons.Rounded.GraphicEq, c.accentMuted, Modifier.weight(1f)) { viewModel.updateOrbSettings(orb.copy(bassReactive = it)) }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OrbQuickToggle("Следы", orb.trailEffect, Icons.Rounded.TrendingUp, c.accent, Modifier.weight(1f)) { viewModel.updateOrbSettings(orb.copy(trailEffect = it)) }
-            OrbQuickToggle("Частицы", orb.particleEmission, Icons.Rounded.Stars, c.accentVar, Modifier.weight(1f)) { viewModel.updateOrbSettings(orb.copy(particleEmission = it)) }
-            OrbQuickToggle("EQ", orb.showVisualizerBars, Icons.Rounded.GraphicEq, c.accentMuted, Modifier.weight(1f)) { viewModel.updateOrbSettings(orb.copy(showVisualizerBars = it)) }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // ── Табы категорий ────────────────────────────────────────────────────
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items(tabs) { tab ->
-                val i = tabs.indexOf(tab)
-                val sel = activeTab == i
-                Box(
-                    Modifier.clip(RoundedCornerShape(20.dp))
-                        .background(if (sel) c.accent else c.bgCard)
-                        .clickable { activeTab = i }
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                ) {
-                    Text(tabs[i], color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 12.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // ── Контент выбранного таба ───────────────────────────────────────────
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(16.dp)).background(c.bgElevated)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            when (activeTab) {
-
-                // ──── Таб 0: Базовые ──────────────────────────────────────────
-                0 -> {
-                    OrbSliderRow("Скорость движения", "${"%.1f".format(orb.speed)}×", orb.speed, 0.2f..4.0f, Icons.Rounded.Speed) { viewModel.updateOrbSettings(orb.copy(speed = it)) }
-                    OrbSliderRow("Контраст цвета", "${(orb.contrast*100).roundToInt()}%", orb.contrast, 0f..1f, Icons.Rounded.Palette) { viewModel.updateOrbSettings(orb.copy(contrast = it)) }
-                    OrbSliderRow("Размер орбов", "${(orb.coverage*100).roundToInt()}%", orb.coverage, 0.4f..1.6f, Icons.Rounded.BlurOn) { viewModel.updateOrbSettings(orb.copy(coverage = it)) }
-                    // Количество орбов
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.AutoAwesome, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Количество орбов", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                            Text("${orb.orbCount}", color = c.accent, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Slider(orb.orbCount.toFloat(), { viewModel.updateOrbSettings(orb.copy(orbCount = it.roundToInt())) }, valueRange = 1f..8f, steps = 6, modifier = Modifier.fillMaxWidth().height(28.dp), colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent.copy(0.8f), inactiveTrackColor = c.textDisabled.copy(0.3f)))
-                    }
-                    OrbSliderRow("Разброс орбов", "${(orb.orbSpread*100).roundToInt()}%", orb.orbSpread, 0.1f..1f, Icons.Rounded.Fullscreen) { viewModel.updateOrbSettings(orb.copy(orbSpread = it)) }
-                    OrbSliderRow("Смещение по вертикали", "${(orb.verticalBias*100).roundToInt()}%", orb.verticalBias, -1f..1f, Icons.Rounded.SwapVert) { viewModel.updateOrbSettings(orb.copy(verticalBias = it)) }
-                }
-
-                // ──── Таб 1: Форма ────────────────────────────────────────────
-                1 -> {
-                    // Форма орба
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Форма орба", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        val shapes = listOf("Круг", "Капля", "Звезда", "Кристалл")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            shapes.forEachIndexed { i, name ->
-                                val sel = orb.orbShape == i
-                                Box(
-                                    Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                                        .background(if (sel) c.accent else c.bgCard)
-                                        .clickable { viewModel.updateOrbSettings(orb.copy(orbShape = i)) }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) { Text(name, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 10.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                            }
-                        }
-                    }
-                    OrbSliderRow("Свечение", "${(orb.glowIntensity*100).roundToInt()}%", orb.glowIntensity, 0f..1f, Icons.Rounded.WbSunny) { viewModel.updateOrbSettings(orb.copy(glowIntensity = it)) }
-                    OrbSliderRow("Размытие", "${(orb.blurRadius*100).roundToInt()}%", orb.blurRadius, 0f..1f, Icons.Rounded.BlurOn) { viewModel.updateOrbSettings(orb.copy(blurRadius = it)) }
-                    OrbSliderRow("Яркость", "${(orb.brightness*100).roundToInt()}%", orb.brightness, 0.1f..1f, Icons.Rounded.WbSunny) { viewModel.updateOrbSettings(orb.copy(brightness = it)) }
-                    OrbSliderRow("Насыщенность", "${(orb.saturation*100).roundToInt()}%", orb.saturation, 0f..1f, Icons.Rounded.Palette) { viewModel.updateOrbSettings(orb.copy(saturation = it)) }
-                    OrbToggleRow("Светящийся контур", "Контур светится цветом орба", orb.borderGlow, Icons.Rounded.RadioButtonChecked, c.accentVar) { viewModel.updateOrbSettings(orb.copy(borderGlow = it)) }
-                    if (orb.borderGlow) OrbSliderRow("Толщина контура", "${(orb.borderThickness*100).roundToInt()}%", orb.borderThickness, 0.05f..1f, Icons.Rounded.FormatSize) { viewModel.updateOrbSettings(orb.copy(borderThickness = it)) }
-                    OrbToggleRow("Матовое стекло", "Эффект frosted glass поверх", orb.frostedGlass, Icons.Rounded.BlurOn, c.accentMuted) { viewModel.updateOrbSettings(orb.copy(frostedGlass = it)) }
-                    OrbSliderRow("Зернистость", "${(orb.noiseAmount*100).roundToInt()}%", orb.noiseAmount, 0f..1f, Icons.Rounded.Apps) { viewModel.updateOrbSettings(orb.copy(noiseAmount = it)) }
-                }
-
-                // ──── Таб 2: Цвет ─────────────────────────────────────────────
-                2 -> {
-                    OrbSliderRow("Смещение оттенка", "${(orb.colorShift*360).roundToInt()}°", orb.colorShift, 0f..1f, Icons.Rounded.Palette) { viewModel.updateOrbSettings(orb.copy(colorShift = it)) }
-                    OrbSliderRow("Тяга к цвету обложки", "${(orb.colorPullStrength*100).roundToInt()}%", orb.colorPullStrength, 0f..1f, Icons.Rounded.Image) { viewModel.updateOrbSettings(orb.copy(colorPullStrength = it)) }
-                    OrbSliderRow("Скорость смены цвета", if (orb.colorCycleSpeed < 0.01f) "Выкл" else "${"%.1f".format(orb.colorCycleSpeed)}×", orb.colorCycleSpeed, 0f..3f, Icons.Rounded.Autorenew) { viewModel.updateOrbSettings(orb.copy(colorCycleSpeed = it)) }
-                    OrbToggleRow("RGB Хрома-эффект", "Орбы расслаиваются на RGB каналы", orb.chromaEffect, Icons.Rounded.ColorLens, c.accent) { viewModel.updateOrbSettings(orb.copy(chromaEffect = it)) }
-                    OrbSliderRow("Контраст цвета", "${(orb.contrast*100).roundToInt()}%", orb.contrast, 0f..1f, Icons.Rounded.Palette) { viewModel.updateOrbSettings(orb.copy(contrast = it)) }
-                }
-
-                // ──── Таб 3: Движение ──────────────────────────────────────────
-                3 -> {
-                    // Режим потока
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Режим движения", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        val modes = listOf("Дрейф", "Орбита", "Хаос", "Синусоида")
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            modes.forEachIndexed { i, name ->
-                                val sel = orb.flowMode == i
-                                Box(
-                                    Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                                        .background(if (sel) c.accentVar else c.bgCard)
-                                        .clickable { viewModel.updateOrbSettings(orb.copy(flowMode = i)) }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) { Text(name, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 10.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                            }
-                        }
-                    }
-                    OrbToggleRow("Вращение", "Орбы вращаются вокруг центра", orb.rotationEnabled, Icons.Rounded.Refresh, c.accent) { viewModel.updateOrbSettings(orb.copy(rotationEnabled = it)) }
-                    OrbToggleRow("Волновое движение", "Орбы движутся волнами", orb.waveMode, Icons.Rounded.Loop, c.accentVar) { viewModel.updateOrbSettings(orb.copy(waveMode = it)) }
-                    OrbToggleRow("Притяжение к обложке", "Орбы хороводят вокруг обложки", orb.magneticToArt, Icons.Rounded.RadioButtonChecked, c.accentMuted) { viewModel.updateOrbSettings(orb.copy(magneticToArt = it)) }
-                    if (orb.magneticToArt) OrbSliderRow("Сила притяжения", "${(orb.magneticStrength*100).roundToInt()}%", orb.magneticStrength, 0.05f..1f, Icons.Rounded.BlurOn) { viewModel.updateOrbSettings(orb.copy(magneticStrength = it)) }
-                    OrbToggleRow("Пульс на бит", "Орбы масштабируются в такт", orb.pulseOnBeat, Icons.Rounded.GraphicEq, c.accent) { viewModel.updateOrbSettings(orb.copy(pulseOnBeat = it)) }
-                    if (orb.pulseOnBeat || orb.bassReactive) OrbSliderRow("Сила реакции", "${(orb.beatScale*200).roundToInt()}%", orb.beatScale, 0.02f..0.5f, Icons.Rounded.Speed) { viewModel.updateOrbSettings(orb.copy(beatScale = it)) }
-                }
-
-                // ──── Таб 4: Эффекты ──────────────────────────────────────────
-                4 -> {
-                    OrbToggleRow("Следы орбов", "Орбы оставляют цветовые следы", orb.trailEffect, Icons.Rounded.TrendingUp, c.accent) { viewModel.updateOrbSettings(orb.copy(trailEffect = it)) }
-                    if (orb.trailEffect) OrbSliderRow("Длина следа", "${(orb.trailLength*100).roundToInt()}%", orb.trailLength, 0.1f..1f, Icons.Rounded.TrendingUp) { viewModel.updateOrbSettings(orb.copy(trailLength = it)) }
-                    OrbToggleRow("Эмиссия частиц", "Мерцающие частицы из орбов", orb.particleEmission, Icons.Rounded.Stars, c.accentVar) { viewModel.updateOrbSettings(orb.copy(particleEmission = it)) }
-                    if (orb.particleEmission) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.AutoAwesome, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Кол-во частиц", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                Text("${orb.particleCount}", color = c.accent, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Slider(orb.particleCount.toFloat(), { viewModel.updateOrbSettings(orb.copy(particleCount = it.roundToInt())) }, valueRange = 5f..60f, steps = 10, modifier = Modifier.fillMaxWidth().height(28.dp), colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent.copy(0.8f), inactiveTrackColor = c.textDisabled.copy(0.3f)))
-                        }
-                    }
-                    OrbToggleRow("Калейдоскоп", "Зеркальная симметрия орбов", orb.kaleidoscopeMode, Icons.Rounded.FilterCenterFocus, c.accentMuted) { viewModel.updateOrbSettings(orb.copy(kaleidoscopeMode = it)) }
-                    OrbToggleRow("Эффект глубины", "Ближний и дальний план орбов", orb.depthEffect, Icons.Rounded.FileCopy, c.accent) { viewModel.updateOrbSettings(orb.copy(depthEffect = it)) }
-                    OrbToggleRow("Мини-эквалайзер", "Полосы EQ поверх орбов", orb.showVisualizerBars, Icons.Rounded.GraphicEq, c.accentVar) { viewModel.updateOrbSettings(orb.copy(showVisualizerBars = it)) }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // Кнопка сброса
-        TextButton(
-            onClick = { viewModel.updateOrbSettings(com.musicplayer.data.OrbSettings()) },
-            modifier = Modifier.align(Alignment.End).padding(end = 16.dp)
-        ) {
-            Icon(Icons.Rounded.Refresh, null, Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("Сбросить всё", fontFamily = font, fontSize = 13.sp)
-        }
-    }
-}
-
-// ── Быстрый переключатель (компактный) ───────────────────────────────────────
-
-@Composable
-private fun OrbQuickToggle(
-    label: String,
-    enabled: Boolean,
-    icon: ImageVector,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onToggle: (Boolean) -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val font = LocalAppFontFamily.current
-    Surface(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onToggle(!enabled) },
-        shape = RoundedCornerShape(16.dp),
-        color = if (enabled) color.copy(alpha = 0.16f) else colors.surfaceContainerHigh
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(icon, null, tint = if (enabled) color else colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
-            Text(
-                label,
-                color = if (enabled) color else colors.onSurfaceVariant,
-                fontFamily = font,
-                fontSize = 10.sp,
-                fontWeight = if (enabled) FontWeight.Bold else FontWeight.Normal
-            )
-        }
-    }
-}
-
-// ── Строка с переключателем ───────────────────────────────────────────────────
-
-@Composable
-private fun OrbToggleRow(
-    title: String, subtitle: String, checked: Boolean,
-    icon: ImageVector,
-    color: Color,
-    onToggle: (Boolean) -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val font = LocalAppFontFamily.current
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = colors.surfaceContainerHigh
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { onToggle(!checked) }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = colors.onSurface, fontFamily = font, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 11.sp)
-            }
-            Switch(
-                checked,
-                onToggle,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = colors.onPrimary,
-                    checkedTrackColor = color,
-                    uncheckedThumbColor = colors.surface,
-                    uncheckedTrackColor = colors.outlineVariant,
-                    uncheckedBorderColor = colors.outline
-                )
-            )
-        }
-    }
-}
-
-// ── Слайдер-строка ────────────────────────────────────────────────────────────
-
-@Composable
-private fun OrbSliderRow(
-    label: String, valueLabel: String, value: Float, range: ClosedFloatingPointRange<Float>,
-    icon: ImageVector, onValueChange: (Float) -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val font = LocalAppFontFamily.current
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = colors.surfaceContainerHigh
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = colors.primary, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(label, color = colors.onSurface, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text(valueLabel, color = colors.primary, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-            Slider(
-                value = value, onValueChange = onValueChange, valueRange = range,
-                modifier = Modifier.fillMaxWidth().height(28.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = colors.primary,
-                    activeTrackColor = colors.primary,
-                    inactiveTrackColor = colors.surfaceVariant
-                )
-            )
-        }
-    }
-}
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TypographyStudioDialog(

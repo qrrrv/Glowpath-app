@@ -8,11 +8,9 @@ import android.content.ServiceConnection
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.PlaybackParams
-import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
-import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musicplayer.bridge.ExteraGramBridgeBatchItem
@@ -231,14 +229,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ── Orb settings ─────────────────────────────────────────────────────────
-    private val _orbSettings = MutableStateFlow(prefs.loadOrbSettings())
-    val orbSettings: StateFlow<com.musicplayer.data.OrbSettings> = _orbSettings.asStateFlow()
-
-    fun updateOrbSettings(orb: com.musicplayer.data.OrbSettings) {
-        _orbSettings.value = orb
-        prefs.saveOrbSettings(orb)
-    }
-
     // ── Top Bar Settings ──────────────────────────────────────────────────────
     private val _topBarSettings = MutableStateFlow(prefs.loadTopBarSettings())
     val topBarSettings: StateFlow<com.musicplayer.data.TopBarSettings> = _topBarSettings.asStateFlow()
@@ -284,9 +274,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     /** Equalizer Android effect (null if device doesn't support it) */
     private var androidEqualizer: android.media.audiofx.Equalizer? = null
     private var androidVirtualizer: android.media.audiofx.Virtualizer? = null
-    private var audioVisualizer: Visualizer? = null
-    private val _audioReactiveLevel = MutableStateFlow(0f)
-    val audioReactiveLevel: StateFlow<Float> = _audioReactiveLevel.asStateFlow()
 
     fun updateEqGains(gains: List<Float>) {
         _eqGains.value = gains
@@ -356,11 +343,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // Release old instances
         androidEqualizer?.release()
         androidVirtualizer?.release()
-        audioVisualizer?.release()
         androidEqualizer = null
         androidVirtualizer = null
-        audioVisualizer = null
-        _audioReactiveLevel.value = 0f
 
         try {
             androidEqualizer = android.media.audiofx.Equalizer(0, sessionId).apply {
@@ -375,69 +359,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (_: Exception) {}
 
-        try {
-            // Visualizer can call the FFT listener much faster than the UI can render.
-            // Keep the audio engine at its native rate, but publish UI state at 30 Hz.
-            var lastReactiveUpdateMs = 0L
-            val visualizer = Visualizer(sessionId).apply {
-                captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
-                setDataCaptureListener(
-                    object : Visualizer.OnDataCaptureListener {
-                        override fun onWaveFormDataCapture(
-                            visualizer: Visualizer?,
-                            waveform: ByteArray?,
-                            samplingRate: Int
-                        ) = Unit
-
-                        override fun onFftDataCapture(
-                            visualizer: Visualizer?,
-                            fft: ByteArray?,
-                            samplingRate: Int
-                        ) {
-                            val nowMs = SystemClock.elapsedRealtime()
-                            if (nowMs - lastReactiveUpdateMs < 33L) return
-                            lastReactiveUpdateMs = nowMs
-                            if (fft == null || fft.size < 8) {
-                                val decayed = _audioReactiveLevel.value * 0.82f
-                                if (abs(decayed - _audioReactiveLevel.value) >= 0.01f) {
-                                    _audioReactiveLevel.value = decayed
-                                }
-                                return
-                            }
-                            val binCount = fft.size / 2
-                            val resolution = (samplingRate / 2f) / binCount.coerceAtLeast(1)
-                            var bass = 0f
-                            var bins = 0
-                            for (bin in 1 until binCount.coerceAtMost(28)) {
-                                if (bin * resolution > 190f) break
-                                val real = fft[bin * 2].toInt()
-                                val imag = fft[bin * 2 + 1].toInt()
-                                bass += sqrt((real * real + imag * imag).toFloat()) / 128f
-                                bins++
-                            }
-                            val raw = if (bins > 0) bass / bins else 0f
-                            val boosted = ((raw - 0.18f).coerceAtLeast(0f) * 1.9f).coerceIn(0f, 1f)
-                            val current = _audioReactiveLevel.value
-                            val next = if (boosted > current) {
-                                boosted
-                            } else {
-                                current * 0.78f + boosted * 0.22f
-                            }
-                            if (abs(next - current) >= 0.01f) {
-                                _audioReactiveLevel.value = next
-                            }
-                        }
-                    },
-                    Visualizer.getMaxCaptureRate() / 2,
-                    false,
-                    true
-                )
-                enabled = true
-            }
-            audioVisualizer = visualizer
-        } catch (_: Exception) {
-            _audioReactiveLevel.value = 0f
-        }
     }
 
     private val _bridgeQueueUris = MutableStateFlow<List<String>>(emptyList())
@@ -985,8 +906,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (!preserveBridgeQueue) {
             clearBridgeQueue()
         }
-        val sorted = getSortedSongs()
-        _currentIndex.value = sorted.indexOf(song).takeIf { it >= 0 } ?: _songs.value.indexOf(song)
+        val sorted = sortedVisibleSongs(getVisibleSongs())
+        _currentIndex.value = sorted.indexOf(song).takeIf { it >= 0 } ?: -1
         startPlayback(song)
     }
 
@@ -1108,9 +1029,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 // Вызывается в начале кроссфейда — обновляем UI немедленно
                 // чтобы название/обложка соответствовали уже играющему треку
                 _currentSong.value  = swappedToSong
-                val list = getVisibleSongs().let { visible ->
-                    if (_settings.value.shuffleEnabled) visible else sortedVisibleSongs(visible)
-                }
+                val list = sortedVisibleSongs(getVisibleSongs())
                 val idx = list.indexOfFirst { it.id == swappedToSong.id }
                 if (idx >= 0) _currentIndex.value = idx
                 trackingStartMs     = System.currentTimeMillis()
@@ -1131,20 +1050,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Следующий трек без запуска playback — для планирования кроссфейда. */
     private fun peekNextSong(currentSong: Song): Song? {
-        bridgeQueueRelative(1)?.let { return it }
+        if (!_settings.value.shuffleEnabled) {
+            bridgeQueueRelative(1)?.let { return it }
+        }
 
         val visible = getVisibleSongs()
         if (visible.isEmpty()) return null
 
         if (_settings.value.shuffleEnabled) {
-            val idx = visible.indexOfFirst { it.id == currentSong.id }
+            val shuffled = sortedVisibleSongs(visible)
+            val idx = shuffled.indexOfFirst { it.id == currentSong.id }
             val remaining = if (shuffleRemaining.isEmpty()) {
-                (visible.indices).filter { it != idx }
+                shuffled.indices.filter { it != idx }
             } else {
-                shuffleRemaining.filter { it != idx && it in visible.indices }
+                shuffleRemaining.filter { it != idx && it in shuffled.indices }
             }
-            val nextIdx = remaining.firstOrNull() ?: visible.indices.firstOrNull { it != idx }
-            return nextIdx?.let { visible.getOrNull(it) } ?: currentSong
+            val nextIdx = remaining.firstOrNull() ?: shuffled.indices.firstOrNull { it != idx }
+            return nextIdx?.let { shuffled.getOrNull(it) } ?: currentSong
         }
 
         val sorted = sortedVisibleSongs(visible)
@@ -1413,7 +1335,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playNext() {
-        bridgeQueueRelative(1)?.let { nextSong ->
+        if (!_settings.value.shuffleEnabled) bridgeQueueRelative(1)?.let { nextSong ->
             val sorted = getSortedSongs()
             _currentIndex.value = sorted.indexOf(nextSong).takeIf { it >= 0 } ?: _songs.value.indexOf(nextSong)
             playSong(nextSong, preserveBridgeQueue = true)
@@ -1421,17 +1343,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val visibleSongs = getVisibleSongs()
-        val sorted = if (_settings.value.shuffleEnabled) {
-            visibleSongs  // shuffle будет применен через getNextShuffleIndex
-        } else {
-            when (_settings.value.sortOrder) {
-                com.musicplayer.data.SortOrder.TITLE      -> visibleSongs.sortedBy { it.displayTitle().lowercase() }
-                com.musicplayer.data.SortOrder.ARTIST     -> visibleSongs.sortedBy { it.displayArtist().lowercase() }
-                com.musicplayer.data.SortOrder.ALBUM      -> visibleSongs.sortedBy { it.album.lowercase() }
-                com.musicplayer.data.SortOrder.DURATION   -> visibleSongs.sortedBy { it.duration }
-                com.musicplayer.data.SortOrder.DATE_ADDED -> visibleSongs.sortedByDescending { it.id }
-            }
-        }
+        val sorted = sortedVisibleSongs(visibleSongs)
 
         if (sorted.isEmpty()) return
 
@@ -1447,7 +1359,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playPrevious() {
         if (_currentPosition.value > 3000L) { seekTo(0L); return }
-        bridgeQueueRelative(-1)?.let { prevSong ->
+        if (!_settings.value.shuffleEnabled) bridgeQueueRelative(-1)?.let { prevSong ->
             val sorted = getSortedSongs()
             _currentIndex.value = sorted.indexOf(prevSong).takeIf { it >= 0 } ?: _songs.value.indexOf(prevSong)
             playSong(prevSong, preserveBridgeQueue = true)
@@ -1562,9 +1474,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try { if (it.isPlaying) it.stop() } catch (_: Exception) {}
             try { it.release() } catch (_: Exception) {}
         }
-        try { audioVisualizer?.release() } catch (_: Exception) {}
-        audioVisualizer = null
-        _audioReactiveLevel.value = 0f
         _duration.value = 0L
         syncBridgeState()
     }
@@ -1761,7 +1670,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         stopPlayback()
         try { androidEqualizer?.release() } catch (_: Exception) {}
         try { androidVirtualizer?.release() } catch (_: Exception) {}
-        try { audioVisualizer?.release() } catch (_: Exception) {}
         try { getApplication<Application>().unbindService(serviceConnection) } catch (e: Exception) {}
     }
 }

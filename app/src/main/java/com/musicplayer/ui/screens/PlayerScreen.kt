@@ -25,8 +25,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -52,15 +50,12 @@ import coil.compose.AsyncImage
 import coil.size.Size as CoilSize
 import com.musicplayer.R
 import com.musicplayer.MiniPlayer
-import com.musicplayer.data.OrbSettings
 import com.musicplayer.data.RepeatMode
 import com.musicplayer.data.toTimeString
 import com.musicplayer.ui.components.*
 import com.musicplayer.ui.components.instrumentIconRes
 import com.musicplayer.ui.theme.*
 import androidx.compose.ui.util.lerp as lerpFloat
-import androidx.palette.graphics.Palette
-import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
@@ -74,322 +69,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.cos
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode as AnimRepeatMode
 import com.airbnb.lottie.LottieProperty
 import com.airbnb.lottie.compose.*
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Animated orb background — 7 orbs, seamless Lissajous, full OrbSettings support
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-fun AnimatedOrbBackground(
-    color1: Color,
-    color2: Color,
-    color3: Color,
-    baseColor: Color,
-    orbSettings: OrbSettings = OrbSettings(),
-    modifier: Modifier = Modifier,
-    audioReactiveLevel: Float = -1f
-) {
-    val speedMs = (32000f / orbSettings.speed).toInt().coerceIn(5000, 120000)
-    val cov  = orbSettings.coverage
-    val spread = (0.2f + orbSettings.orbSpread.coerceIn(0.1f, 1f) * 0.95f)
-    val vbias = orbSettings.verticalBias.coerceIn(-0.5f, 0.5f)
-    val inf  = rememberInfiniteTransition(label = "orbAnim")
-
-    val t by inf.animateFloat(
-        initialValue  = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(speedMs, easing = LinearEasing), AnimRepeatMode.Restart),
-        label = "orbT"
-    )
-    val tau = (2.0 * Math.PI * t).toFloat()
-
-    // Color cycle — animate hue continuously if colorCycleSpeed > 0
-    val cycleSpeedMs = if (orbSettings.colorCycleSpeed > 0.01f)
-        (20000f / orbSettings.colorCycleSpeed.coerceIn(0.1f, 5f)).toInt().coerceIn(2000, 120000)
-    else Int.MAX_VALUE
-    val colorCycleT by inf.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(cycleSpeedMs, easing = LinearEasing), AnimRepeatMode.Restart),
-        label = "colorCycle"
-    )
-    val cycleDeg = if (orbSettings.colorCycleSpeed > 0.01f) colorCycleT * 360f else 0f
-
-    // Magnetic attraction: orbs drift toward art center (0.5, 0.35)
-    val magX = 0.5f; val magY = 0.35f
-    val mag = if (orbSettings.magneticToArt) orbSettings.magneticStrength else 0f
-    fun mx(x: Float) = x + (magX - x) * mag * 0.4f
-    fun my(y: Float) = (y + (magY - y) * mag * 0.4f + vbias).coerceIn(0f, 1f)
-
-    // Rotation: apply global rotation if enabled
-    val rotOffset = if (orbSettings.rotationEnabled) tau * 0.08f else 0f
-
-    // flowMode: 0=drift, 1=orbit, 2=chaos, 3=sinus
-    fun spreadAmp(amp: Float) = amp * spread
-    fun ox(base: Float, amp: Float, freq: Int, phase: Float) = when (orbSettings.flowMode) {
-        1 -> mx(0.5f + spreadAmp(amp) * cos(freq * tau + phase + rotOffset))  // orbit around center
-        2 -> mx(base + spreadAmp(amp) * sin(freq * tau * 1.7f + phase + rotOffset) * sin(freq * tau * 0.9f + phase)) // chaos
-        3 -> mx(base + spreadAmp(amp) * sin(freq * tau + phase) * cos(tau * 0.5f + phase)) // sinus cross
-        else -> mx(base + spreadAmp(amp) * sin(freq * tau + phase + rotOffset))
-    }
-    fun oy(base: Float, amp: Float, freq: Int, phase: Float) = when (orbSettings.flowMode) {
-        1 -> my(0.5f + spreadAmp(amp) * sin(freq * tau + phase))
-        2 -> my(base + spreadAmp(amp) * cos(freq * tau * 1.3f + phase + rotOffset) * cos(freq * tau * 1.1f + phase))
-        3 -> my(base + spreadAmp(amp) * cos(freq * tau + phase) * sin(tau * 0.7f + phase))
-        else -> my(base + spreadAmp(amp) * cos(freq * tau + phase))
-    }
-
-    // waveMode: orbs move on wave spine
-    fun wy(base: Float, amp: Float, freq: Int, phase: Float) =
-        if (orbSettings.waveMode) my(0.5f + spreadAmp(0.35f) * sin(tau * 2f + phase)) else oy(base, amp, freq, phase)
-
-    val o1x = ox(0.50f, 0.42f, 1, 0.00f); val o1y = wy(0.22f, 0.25f, 2, 0.50f)
-    val o2x = ox(0.72f, 0.24f, 3, 1.00f); val o2y = wy(0.50f, 0.32f, 2, 2.10f)
-    val o3x = ox(0.45f, 0.35f, 2, 3.20f); val o3y = wy(0.72f, 0.24f, 3, 0.80f)
-    val o4x = ox(0.22f, 0.20f, 1, 2.50f); val o4y = wy(0.55f, 0.38f, 3, 1.60f)
-    val o5x = ox(0.55f, 0.30f, 4, 0.70f); val o5y = wy(0.42f, 0.28f, 3, 3.80f)
-    val o6x = ox(0.75f, 0.20f, 3, 4.20f); val o6y = wy(0.18f, 0.17f, 5, 1.30f)
-    val o7x = ox(0.50f, 0.44f, 5, 2.00f); val o7y = wy(0.50f, 0.42f, 4, 0.20f)
-    val o8x = ox(0.18f, 0.16f, 5, 5.30f); val o8y = wy(0.28f, 0.22f, 4, 2.40f)
-
-    // Color: shift + saturation/brightness + color cycle
-    val cs = orbSettings.colorShift
-    val sat = orbSettings.saturation.coerceIn(0f, 1.5f)
-    val bri = orbSettings.brightness.coerceIn(0f, 1.5f)
-    fun adjustedColor(base: Color): Color {
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(
-            android.graphics.Color.argb(
-                (base.alpha * 255).toInt(),
-                (base.red * 255).toInt(),
-                (base.green * 255).toInt(),
-                (base.blue * 255).toInt()
-            ), hsv
-        )
-        if (cs > 0.01f) hsv[0] = (hsv[0] + cs * 360f) % 360f
-        hsv[0] = (hsv[0] + cycleDeg) % 360f
-        hsv[1] = (hsv[1] * sat).coerceIn(0f, 1f)
-        hsv[2] = (hsv[2] * bri).coerceIn(0f, 1f)
-        return Color(android.graphics.Color.HSVToColor(hsv)).copy(alpha = base.alpha)
-    }
-    val sc1 = adjustedColor(color1)
-    val sc2 = adjustedColor(color2)
-    val sc3 = adjustedColor(color3)
-
-    val previewKick by inf.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = keyframes {
-                durationMillis = 720
-                0f at 0
-                1f at 90 using FastOutSlowInEasing
-                0.58f at 180 using LinearOutSlowInEasing
-                0.18f at 360 using FastOutLinearInEasing
-                0f at 720
-            },
-            repeatMode = AnimRepeatMode.Restart
-        ),
-        label = "orbKick"
-    )
-    val reactiveKick = when {
-        audioReactiveLevel >= 0f && orbSettings.bassReactive -> audioReactiveLevel.coerceIn(0f, 1f)
-        orbSettings.pulseOnBeat -> previewKick
-        audioReactiveLevel < 0f && orbSettings.bassReactive -> previewKick
-        else -> 0f
-    }
-    val primaryPulse = 1f + reactiveKick * orbSettings.beatScale * if (orbSettings.bassReactive) 2.6f else 1.45f
-    val secondaryPulse = 1f + reactiveKick * orbSettings.beatScale * if (orbSettings.bassReactive) 1.7f else 0.95f
-    val haloPulse = 1f + reactiveKick * orbSettings.beatScale * 0.72f
-
-    data class OrbDef(val cx: Float, val cy: Float, val r: Float, val color: Color, val alpha: Float, val depth: Float = 1f)
-    val allOrbs = listOf(
-        OrbDef(o1x, o1y, 0.90f * primaryPulse, sc1, 0.78f, 1.0f),
-        OrbDef(o2x, o2y, 0.78f * secondaryPulse, sc2, 0.68f, 0.85f),
-        OrbDef(o3x, o3y, 0.76f * haloPulse, sc3, 0.60f, 1.1f),
-        OrbDef(o4x, o4y, 0.60f * secondaryPulse, sc1, 0.50f, 0.7f),
-        OrbDef(o5x, o5y, 0.65f * primaryPulse, sc2, 0.44f, 0.9f),
-        OrbDef(o6x, o6y, 0.48f * secondaryPulse, sc3, 0.52f, 1.2f),
-        OrbDef(o7x, o7y, 1.05f * haloPulse, sc1, 0.28f, 0.6f),
-        OrbDef(o8x, o8y, 0.54f * secondaryPulse, sc2, 0.38f, 1.05f)
-    )
-    val activeOrbs = allOrbs.take(orbSettings.orbCount.coerceIn(1, 8))
-    val glowAlpha = orbSettings.glowIntensity.coerceIn(0f, 1f)
-    val blurSoftness = (0.12f + orbSettings.blurRadius.coerceIn(0f, 1f) * 0.45f).coerceIn(0.08f, 0.58f)
-    val reactiveGlowBoost = reactiveKick * if (orbSettings.bassReactive) 0.42f else 0.18f
-
-    // Particle positions (seeded from tau)
-    val particleCount = orbSettings.particleCount.coerceIn(5, 60)
-
-    Box(modifier = modifier.graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen)) {
-        Box(Modifier.fillMaxSize().drawBehind {
-            val w = size.width; val h = size.height
-            drawRect(color = baseColor)
-
-            // Depth factor per orb
-            fun depthFactor(depth: Float) = if (orbSettings.depthEffect) depth else 1f
-
-            fun orbCircle(cx: Float, cy: Float, r: Float, c: Color, alpha: Float, depth: Float = 1f) {
-                val df = depthFactor(depth)
-                val a = (alpha * (0.4f + glowAlpha * 0.6f + reactiveGlowBoost) * df).coerceIn(0f, 1f)
-                val covR = w * r * cov * df
-
-                if (orbSettings.chromaEffect) {
-                    // RGB channel split — draw R, G, B offset copies
-                    val offset = w * 0.012f
-                    val rColor = Color(c.red, 0f, 0f, a * 0.6f)
-                    val gColor = Color(0f, c.green, 0f, a * 0.6f)
-                    val bColor = Color(0f, 0f, c.blue, a * 0.6f)
-                    drawCircle(Brush.radialGradient(listOf(rColor, rColor.copy(a*0.15f), Color.Transparent), Offset(w*cx - offset, h*cy), covR), covR, Offset(w*cx - offset, h*cy))
-                    drawCircle(Brush.radialGradient(listOf(gColor, gColor.copy(a*0.15f), Color.Transparent), Offset(w*cx, h*cy + offset*0.5f), covR), covR, Offset(w*cx, h*cy + offset*0.5f))
-                    drawCircle(Brush.radialGradient(listOf(bColor, bColor.copy(a*0.15f), Color.Transparent), Offset(w*cx + offset, h*cy), covR), covR, Offset(w*cx + offset, h*cy))
-                }
-
-                drawCircle(
-                    Brush.radialGradient(
-                        listOf(
-                            c.copy(a),
-                            c.copy(a * blurSoftness),
-                            Color.Transparent
-                        ),
-                        Offset(w * cx, h * cy),
-                        covR
-                    ),
-                    covR,
-                    Offset(w * cx, h * cy)
-                )
-
-                // Border glow — ring around orb center
-                if (orbSettings.borderGlow) {
-                    val ringR = covR * 0.35f * orbSettings.borderThickness
-                    val ringAlpha = (a * 0.7f).coerceIn(0f, 1f)
-                    drawCircle(color = c.copy(ringAlpha * 0.5f), radius = ringR, center = Offset(w*cx, h*cy), style = androidx.compose.ui.graphics.drawscope.Stroke(width = ringR * 0.12f))
-                }
-            }
-
-            // Kaleidoscope: mirror canvas in 4 quadrants
-            if (orbSettings.kaleidoscopeMode) {
-                with(this) {
-                    // Mirror horizontally
-                    fun mirrorOrbs(flipH: Boolean, flipV: Boolean) {
-                        activeOrbs.forEach { o ->
-                            val cx = if (flipH) 1f - o.cx else o.cx
-                            val cy = if (flipV) 1f - o.cy else o.cy
-                            orbCircle(cx, cy, o.r * 0.65f, o.color, o.alpha * 0.45f, o.depth)
-                        }
-                    }
-                    mirrorOrbs(true, false)
-                    mirrorOrbs(false, true)
-                    mirrorOrbs(true, true)
-                }
-            }
-
-            // Trail: draw ghost copies slightly behind in time with lower alpha
-            if (orbSettings.trailEffect) {
-                val tau2 = tau - 0.04f * orbSettings.trailLength * 3f
-                val trailOrbs = listOf(
-                    OrbDef(mx(0.50f + 0.42f * sin(1*tau2 + 0.00f + rotOffset)), wy(0.22f, 0.25f, 2, 0.50f + tau2 - tau), 0.85f, sc1, 0.18f),
-                    OrbDef(mx(0.72f + 0.24f * sin(3*tau2 + 1.00f + rotOffset)), wy(0.50f, 0.32f, 2, 2.10f + tau2 - tau), 0.74f, sc2, 0.15f),
-                    OrbDef(mx(0.45f + 0.35f * sin(2*tau2 + 3.20f + rotOffset)), wy(0.72f, 0.24f, 3, 0.80f + tau2 - tau), 0.70f, sc3, 0.12f),
-                )
-                trailOrbs.take(orbSettings.orbCount.coerceIn(1, 3)).forEach { o -> orbCircle(o.cx, o.cy, o.r, o.color, o.alpha * orbSettings.trailLength, o.depth) }
-            }
-
-            activeOrbs.forEachIndexed { index, orb ->
-                val jitterAmount = if (orbSettings.bassReactive) reactiveKick * (0.012f + orbSettings.beatScale * 0.03f) else 0f
-                val jitterX = if (jitterAmount > 0f) {
-                    (orb.cx + sin(tau * (5f + index) + index * 0.64f) * jitterAmount).coerceIn(0.02f, 0.98f)
-                } else orb.cx
-                val jitterY = if (jitterAmount > 0f) {
-                    (orb.cy + cos(tau * (6f + index) + index * 0.52f) * jitterAmount).coerceIn(0.02f, 0.98f)
-                } else orb.cy
-                val extraScale = 1f + reactiveKick * if (index % 2 == 0) 0.12f else 0.07f
-                val extraAlpha = orb.alpha * (1f + reactiveKick * 0.15f)
-                orbCircle(jitterX, jitterY, orb.r * extraScale, orb.color, extraAlpha, orb.depth)
-            }
-
-            // Particle emission — small glowing dots near orb centers
-            if (orbSettings.particleEmission) {
-                val seed = t * 100f
-                repeat(particleCount.coerceAtMost(activeOrbs.size * 10)) { i ->
-                    val orbRef = activeOrbs[i % activeOrbs.size]
-                    val angle = (i * 137.5f + seed * 40f) * Math.PI.toFloat() / 180f
-                    val dist = ((i % 7) / 7f) * w * 0.15f * cov
-                    val px = (orbRef.cx * w + cos(angle) * dist).coerceIn(0f, w)
-                    val py = (orbRef.cy * h + sin(angle) * dist).coerceIn(0f, h)
-                    val pa = (0.6f - (i % 7) / 7f * 0.5f).coerceIn(0f, 0.6f)
-                    drawCircle(
-                        color = orbRef.color.copy(pa * (glowAlpha + reactiveGlowBoost).coerceIn(0f, 1f)),
-                        radius = (2.5f + (i % 3) * 1.5f) * (1f + reactiveKick * 0.25f),
-                        center = Offset(px, py)
-                    )
-                }
-            }
-
-            // Visualizer bars at the bottom
-            if (orbSettings.showVisualizerBars) {
-                val barCount = 24
-                val barW = w / (barCount * 1.6f)
-                val maxH = h * 0.18f
-                repeat(barCount) { i ->
-                    val phase = i * 0.4f
-                    val beatBoost = 1f + reactiveKick * if (orbSettings.bassReactive) 0.95f else 0.45f
-                    val barH = maxH * (0.3f + 0.7f * ((sin(tau * 3f + phase) + 1f) / 2f)) * beatBoost
-                    val barX = i * (w / barCount) + barW * 0.3f
-                    val barColor = if (i % 3 == 0) sc1 else if (i % 3 == 1) sc2 else sc3
-                    val a = (0.45f + reactiveKick * 0.35f) * glowAlpha
-                    drawRoundRect(
-                        color = barColor.copy(a.coerceIn(0f, 1f)),
-                        topLeft = Offset(barX, h - barH),
-                        size = androidx.compose.ui.geometry.Size(barW, barH),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 2f)
-                    )
-                }
-            }
-
-            drawRect(Brush.verticalGradient(listOf(Color.Transparent, baseColor.copy(0.55f)), h*0.50f, h))
-        })
-
-        // Frosted glass overlay (Compose level)
-        if (orbSettings.frostedGlass) {
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.radialGradient(
-                        listOf(baseColor.copy(0.08f), baseColor.copy(0.22f)),
-                        radius = Float.POSITIVE_INFINITY
-                    )
-                )
-            )
-        }
-    }
-}
-
-/** Keeps FFT-driven state local to the visual layer instead of recomposing the whole player. */
-@Composable
-private fun PlayerOrbBackground(
-    viewModel: MusicViewModel,
-    color1: Color,
-    color2: Color,
-    color3: Color,
-    baseColor: Color,
-    orbSettings: OrbSettings,
-    modifier: Modifier
-) {
-    val audioReactiveLevel by viewModel.audioReactiveLevel.collectAsState()
-    AnimatedOrbBackground(
-        color1 = color1,
-        color2 = color2,
-        color3 = color3,
-        baseColor = baseColor,
-        orbSettings = orbSettings,
-        modifier = modifier,
-        audioReactiveLevel = audioReactiveLevel
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     viewModel: MusicViewModel,
@@ -411,44 +93,11 @@ fun PlayerScreen(
     val songs           by viewModel.songs.collectAsState()
     val bridgeQueueUris by viewModel.bridgeQueueUris.collectAsState()
     val customArtMap    by viewModel.customArtMap.collectAsState()
-    val orbSettings     by viewModel.orbSettings.collectAsState()
 
     if (song == null) { LaunchedEffect(Unit) { onBack() }; return }
 
     val isFavourite = song!!.id in favourites
     val customArtUri: android.net.Uri? = customArtMap[song!!.id]
-    // ── Palette extraction — from custom art if set, else album art ───────────
-    data class ArtColors(val dominant: Color, val vibrant: Color, val muted: Color)
-    var artColors by remember(song!!.id) { mutableStateOf<ArtColors?>(null) }
-    val artSourceUri = customArtUri ?: song!!.albumArtUri
-
-    LaunchedEffect(artSourceUri) {
-        artColors = null
-        artSourceUri?.let { uri ->
-            withContext(Dispatchers.IO) {
-                try {
-                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
-                    val bmp = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-                    bmp?.let { b ->
-                        val p = Palette.from(b).maximumColorCount(12).generate()
-                        artColors = ArtColors(
-                            Color(p.getDominantColor(0xFF888888.toInt())),
-                            Color(p.getVibrantColor(p.getMutedColor(0xFF888888.toInt()))),
-                            Color(p.getMutedColor(p.getDominantColor(0xFF666666.toInt())))
-                        )
-                        b.recycle()
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    val ct = orbSettings.contrast
-    val fallback = c.accent.copy(alpha = 0.6f)
-    val animColor1 by animateColorAsState(artColors?.dominant?.copy(0.4f + ct * 0.4f) ?: fallback, tween(800), label = "ac1")
-    val animColor2 by animateColorAsState(artColors?.vibrant?.copy(0.3f + ct * 0.35f) ?: c.accentVar.copy(0.5f), tween(900, 100), label = "ac2")
-    val animColor3 by animateColorAsState(artColors?.muted?.copy(0.25f + ct * 0.3f) ?: c.accentMuted.copy(0.4f), tween(1000, 200), label = "ac3")
-
     // ── Page-flip animation ───────────────────────────────────────────────────
     var flipDirection by remember { mutableIntStateOf(0) }
     val flipRotY = remember { Animatable(0f) }
@@ -562,27 +211,7 @@ fun PlayerScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        val hazeState = remember { HazeState() }
-
-        if (orbSettings.showInPlayer) {
-            PlayerOrbBackground(
-                viewModel = viewModel,
-                color1 = animColor1,
-                color2 = animColor2,
-                color3 = animColor3,
-                baseColor = c.bgDeep,
-                orbSettings = orbSettings,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = playerBackgroundAlpha }
-            )
-        } else {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(c.bgDeep.copy(alpha = playerBackgroundAlpha))
-            )
-        }
+        Box(Modifier.fillMaxSize().background(c.bgDeep.copy(alpha = playerBackgroundAlpha)))
 
         PlayerCollapseBackdrop(
             title = song!!.title,
@@ -600,7 +229,6 @@ fun PlayerScreen(
 
         Box(
             Modifier.fillMaxSize()
-                .haze(hazeState)
                 .graphicsLayer {
                     translationY = animatedOffset.coerceAtLeast(0f) + entryOffsetY
                     scaleX = swipeScale * entryScale
@@ -650,7 +278,6 @@ fun PlayerScreen(
         TrackSettingsOverlay(
             visible = showTrackSettings, volume = volume, playbackSpeed = playbackSpeed, song = song,
             viewModel = viewModel,
-            hazeState = hazeState,
             onVolumeChange = { viewModel.setVolume(it) }, onSpeedChange = { viewModel.setPlaybackSpeed(it) },
             onSetRingtone = { song?.let { setAsRingtone(context, it.uri) }; showTrackSettings = false },
             onDismiss = { showTrackSettings = false }
@@ -1169,7 +796,6 @@ private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFav
 fun TrackSettingsOverlay(
     visible: Boolean, volume: Float, playbackSpeed: Float, song: com.musicplayer.data.Song?,
     viewModel: MusicViewModel,
-    hazeState: HazeState,
     onVolumeChange: (Float) -> Unit, onSpeedChange: (Float) -> Unit, onSetRingtone: () -> Unit, onDismiss: () -> Unit
 ) {
     val c    = MaterialTheme.colorScheme

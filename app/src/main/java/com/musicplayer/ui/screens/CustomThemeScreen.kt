@@ -17,7 +17,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -625,24 +624,6 @@ private fun LivePreviewCard(
                 }
             )
         ) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = 10.dp)
-                    .size(240.dp)
-                    .blur(48.dp)
-                    .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.16f))
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 20.dp, y = 52.dp)
-                    .size(160.dp)
-                    .blur(40.dp)
-                    .clip(CircleShape)
-                    .background(accVar.copy(alpha = 0.14f))
-            )
             Column(
                 modifier = Modifier.padding(
                     horizontal = if (expanded) 16.dp else 12.dp,

@@ -13,7 +13,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
@@ -58,7 +57,7 @@ fun TopBarSettingsScreen(
 
     // Категории
     var activeTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Пресет", "Иконка", "Заголовок", "Фон", "Орбы", "Эффекты", "Кнопки", "Прочее")
+    val tabs = listOf("Пресет", "Иконка", "Заголовок", "Фон", "Кнопки", "Прочее")
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -164,15 +163,15 @@ fun TopBarSettingsScreen(
                                 fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             val presets = listOf(
                                 "Стекло" to TopBarSettings(stylePreset = 0),
-                                "Минимал" to TopBarSettings(stylePreset = 1, bgStyle = 2, orbsVisible = false, iconRingVisible = false, dividerStyle = 1),
+                                "Минимал" to TopBarSettings(stylePreset = 1, bgStyle = 2, iconRingVisible = false, dividerStyle = 1),
                                 "Жирный" to TopBarSettings(stylePreset = 2, titleSize = 26f, titleWeight = 1, iconSize = 34f, bgStyle = 1, bgOpacity = 0.95f),
-                                "Неон"    to TopBarSettings(stylePreset = 3, orbsVisible = true, orbColorMode = 2, orbOpacity = 0.32f, sparklesVisible = true, dividerStyle = 3, accentButtons = true),
-                                "Ретро"  to TopBarSettings(stylePreset = 4, bgStyle = 1, bgOpacity = 0.98f, orbsVisible = false, iconStyle = 3, titleWeight = 2, dividerStyle = 1),
-                                "Аура"   to TopBarSettings(stylePreset = 5, bgStyle = 4, orbColorMode = 5, orbOpacity = 0.28f, iconStyle = 4, iconAnimation = 5, buttonStyle = 4, dividerStyle = 5),
+                                "Неон"    to TopBarSettings(stylePreset = 3, dividerStyle = 3, accentButtons = true),
+                                "Ретро"  to TopBarSettings(stylePreset = 4, bgStyle = 1, bgOpacity = 0.98f, iconStyle = 3, titleWeight = 2, dividerStyle = 1),
+                                "Аура"   to TopBarSettings(stylePreset = 5, bgStyle = 4, iconStyle = 4, iconAnimation = 5, buttonStyle = 4, dividerStyle = 5),
                                 "Studio" to TopBarSettings(stylePreset = 6, bgStyle = 5, iconStyle = 1, iconAnimation = 4, buttonStyle = 5, accentButtons = true, buttonBorderVisible = true, dividerStyle = 2),
-                                "Лёд"    to TopBarSettings(stylePreset = 7, bgStyle = 4, orbColorMode = 5, iconStyle = 5, iconTintMode = 1, bgOpacity = 0.9f, dividerStyle = 4),
+                                "Лёд"    to TopBarSettings(stylePreset = 7, bgStyle = 4, iconStyle = 5, iconTintMode = 1, bgOpacity = 0.9f, dividerStyle = 4),
                                 "Liquid" to TopBarSettings(stylePreset = 8, bgStyle = 3, glassTintMode = 0, glassDepth = 0.92f, edgeShine = 0.85f, titleCapsuleVisible = true, titleCapsuleOpacity = 0.28f, subtitleStyle = 1, buttonStyle = 4, buttonBorderVisible = true),
-                                "Telegram" to TopBarSettings(stylePreset = 9, bgStyle = 3, glassTintMode = 1, glassDepth = 0.88f, edgeShine = 0.92f, titleCapsuleVisible = true, titleCapsuleOpacity = 0.18f, subtitleStyle = 1, buttonStyle = 0, buttonBorderVisible = true, orbsVisible = false, sparklesVisible = false),
+                                "Telegram" to TopBarSettings(stylePreset = 9, bgStyle = 3, glassTintMode = 1, glassDepth = 0.88f, edgeShine = 0.92f, titleCapsuleVisible = true, titleCapsuleOpacity = 0.18f, subtitleStyle = 1, buttonStyle = 0, buttonBorderVisible = true),
                                 "Acrylic" to TopBarSettings(stylePreset = 10, bgStyle = 5, glassTintMode = 2, glassDepth = 0.78f, edgeShine = 0.66f, titleCapsuleVisible = false, subtitleStyle = 2, buttonStyle = 5, buttonBorderVisible = true)
                             )
                             presets.chunked(2).forEach { row ->
@@ -358,44 +357,8 @@ fun TopBarSettingsScreen(
                             }
                         }
 
-                        // ── 4: Орбы ───────────────────────────────────────────
+                        // ── 4: Кнопки ─────────────────────────────────────────
                         4 -> {
-                            TbToggle("Показывать орбы", tb.orbsVisible, Icons.Rounded.AutoAwesome, c.accent) {
-                                viewModel.updateTopBarSettings(tb.copy(orbsVisible = it))
-                            }
-                            if (tb.orbsVisible) {
-                                TbSlider("Количество орбов", "${tb.orbCount}", tb.orbCount.toFloat(), 1f..5f,
-                                    steps = 3) { viewModel.updateTopBarSettings(tb.copy(orbCount = it.toInt())) }
-                                TbSlider("Прозрачность орбов", "${(tb.orbOpacity * 100).toInt()}%", tb.orbOpacity, 0.02f..0.7f) {
-                                    viewModel.updateTopBarSettings(tb.copy(orbOpacity = it))
-                                }
-                                TbSlider("Скорость орбов", "${(tb.orbSpeed * 10).toInt() / 10f}×", tb.orbSpeed, 0.1f..4f) {
-                                    viewModel.updateTopBarSettings(tb.copy(orbSpeed = it))
-                                }
-                                TbSlider("Размер орбов", "${(tb.orbSize * 100).toInt()}%", tb.orbSize, 0.2f..2f) {
-                                    viewModel.updateTopBarSettings(tb.copy(orbSize = it))
-                                }
-                                TbSelector("Цвет орбов", listOf("Accent", "Двойной", "Радуга", "Белый", "Тёплый", "Холодный"),
-                                    tb.orbColorMode, c) { viewModel.updateTopBarSettings(tb.copy(orbColorMode = it)) }
-                            }
-                        }
-
-                        // ── 5: Эффекты ────────────────────────────────────────
-                        5 -> {
-                            TbToggle("Частицы-искры", tb.sparklesVisible, Icons.Rounded.Stars, c.accentVar) {
-                                viewModel.updateTopBarSettings(tb.copy(sparklesVisible = it))
-                            }
-                            if (tb.sparklesVisible) {
-                                TbSlider("Количество частиц", "${tb.sparkleCount}", tb.sparkleCount.toFloat(), 2f..30f,
-                                    steps = 13) { viewModel.updateTopBarSettings(tb.copy(sparkleCount = it.toInt())) }
-                                TbSlider("Скорость частиц", "${(tb.sparkleSpeed * 10).toInt() / 10f}×", tb.sparkleSpeed, 0.2f..4f) {
-                                    viewModel.updateTopBarSettings(tb.copy(sparkleSpeed = it))
-                                }
-                            }
-                        }
-
-                        // ── 6: Кнопки ─────────────────────────────────────────
-                        6 -> {
                             TbSelector("Стиль кнопок", listOf("Стекло", "Заливка", "Контур", "Без фона", "Пилюля", "Неон"),
                                 tb.buttonStyle, c) { viewModel.updateTopBarSettings(tb.copy(buttonStyle = it)) }
                             TbSlider("Размер кнопок", "${tb.buttonSize.toInt()} dp", tb.buttonSize, 32f..60f) {
@@ -416,7 +379,7 @@ fun TopBarSettingsScreen(
                         }
 
                         // ── 7: Прочее ─────────────────────────────────────────
-                        7 -> {
+                        5 -> {
                             Text("Разделитель", color = c.textPrimary, fontFamily = font,
                                 fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             TbSelector("Стиль разделителя", listOf("Нет", "Линия", "Акцент", "Свечение", "Пунктир", "Двойной"),
@@ -534,72 +497,6 @@ private fun TopBarPreview(
                         )
                     )
             )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 2.dp)
-                    .fillMaxWidth(0.86f)
-                    .height(24.dp)
-                    .blur((10.dp + 12.dp * edgeShine).coerceAtLeast(10.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color.Transparent,
-                                Color.White.copy(alpha = 0.03f + edgeShine * 0.10f),
-                                glassTint.copy(alpha = 0.02f + edgeShine * 0.05f),
-                                Color.Transparent
-                            )
-                        ),
-                        RoundedCornerShape(999.dp)
-                    )
-            )
-
-            // ── Orbs ──────────────────────────────────────────────────────────
-            if (tb.orbsVisible && tb.orbCount > 0) {
-                val it = rememberInfiniteTransition(label = "pvOrbs")
-                val phases = (0 until minOf(tb.orbCount, 5)).map { i ->
-                    it.animateFloat(0f, 1f,
-                        infiniteRepeatable(tween((2800 + i * 700) / tb.orbSpeed.coerceAtLeast(0.1f).toInt().coerceAtLeast(1), easing = FastOutSlowInEasing), RepeatMode.Reverse), "pvOrb$i"
-                    ).value
-                }
-                val orbPos = listOf(Offset(0.12f, 0.4f), Offset(0.78f, 0.6f), Offset(0.5f, 0.2f), Offset(0.3f, 0.8f), Offset(0.9f, 0.3f))
-                val baseR  = listOf(70f, 55f, 45f, 40f, 42f)
-                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width; val h = size.height
-                    phases.forEachIndexed { i, phase ->
-                        val pos   = orbPos[i]; val r = (baseR[i] * tb.orbSize) + phase * 20f * tb.orbSize
-                        val alpha = tb.orbOpacity + phase * tb.orbOpacity * 0.4f
-                        val color = when (tb.orbColorMode) {
-                            1 -> if (i % 2 == 0) c.accent else c.accentVar
-                            2 -> listOf(c.accent, c.accentVar, Color(0xFF8B6FD4), Color(0xFF6FD48B), Color(0xFFD46F6F))[i % 5]
-                            3 -> Color.White
-                            4 -> listOf(Color(0xFFFFB86C), Color(0xFFFF8A65), Color(0xFFFFD180), c.accent)[i % 4]
-                            5 -> listOf(Color(0xFF80DEEA), Color(0xFF64B5F6), Color(0xFF90CAF9), c.accentVar)[i % 4]
-                            else -> c.accent
-                        }
-                        drawCircle(brush = Brush.radialGradient(listOf(color.copy(alpha = alpha), Color.Transparent),
-                            center = Offset(pos.x * w, pos.y * h), radius = r),
-                            radius = r, center = Offset(pos.x * w, pos.y * h))
-                    }
-                }
-            }
-
-            // ── Sparkles ──────────────────────────────────────────────────────
-            if (tb.sparklesVisible) {
-                val spIt = rememberInfiniteTransition(label = "pvSp")
-                val spT by spIt.animateFloat(0f, 1f, infiniteRepeatable(tween((3000 / tb.sparkleSpeed.coerceAtLeast(0.1f)).toInt().coerceAtLeast(400), easing = LinearEasing)), "pvSpT")
-                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width; val h = size.height
-                    repeat(tb.sparkleCount) { i ->
-                        val t = (spT + i.toFloat() / tb.sparkleCount) % 1f
-                        val x = ((i * 137.5f + t * 60f) % w)
-                        val y = h * 0.5f + sin((t + i * 0.3f) * 6.28f).toFloat() * h * 0.4f
-                        val a = sin(t * 3.14f).toFloat().coerceIn(0f, 1f) * 0.8f
-                        if (a > 0.05f) drawCircle(c.accent.copy(alpha = a), radius = 2f, center = Offset(x, y))
-                    }
-                }
-            }
-
             // ── Simulated bar content ─────────────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),

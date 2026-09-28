@@ -505,16 +505,11 @@ fun MusicPlayerApp(
                     onBack             = { navController.popBackStack() },
                     onTransitionsClick = { navController.navigate("transitions") },
                     onAnimationsClick  = { navController.navigate("animations") },
-                    onOrbsClick        = { navController.navigate("orb_settings") },
                     onStatsClick       = { navController.navigate("stats") },
                     onEqualizerClick   = { navController.navigate("equalizer") },
                     onCustomThemeClick = { navController.navigate("custom_theme") },
                     onTopBarClick      = { navController.navigate("topbar_settings") }
                 )
-            }
-
-            composable("orb_settings", enterTransition = { AnimationsApplier.screenEnter(settings.screenTransitionAnim, settings.animParams) }, exitTransition = { AnimationsApplier.screenExit(settings.screenTransitionAnim, settings.animParams) }, popEnterTransition = { AnimationsApplier.screenPopEnter(settings.screenTransitionAnim, settings.animParams) }, popExitTransition = { AnimationsApplier.screenPopExit(settings.screenTransitionAnim, settings.animParams) }) {
-                OrbSettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
             }
 
             composable(
@@ -753,43 +748,6 @@ private fun LiquidGlassPane(
                             tint.copy(alpha = 0.02f + safeDepth * 0.04f)
                         )
                     )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth(0.88f)
-                .height(30.dp)
-                .offset(y = (-1).dp)
-                .blur((16.dp * safeDepth).coerceAtLeast(10.dp))
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            ComposeColor.Transparent,
-                            ComposeColor.White.copy(alpha = 0.04f + safeDepth * 0.10f),
-                            tint.copy(alpha = 0.02f + safeDepth * 0.04f),
-                            ComposeColor.Transparent
-                        )
-                    ),
-                    RoundedCornerShape(999.dp)
-                )
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(0.72f)
-                .height(24.dp)
-                .offset(y = 6.dp)
-                .blur((18.dp * safeDepth).coerceAtLeast(12.dp))
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            ComposeColor.Transparent,
-                            tint.copy(alpha = 0.08f + safeDepth * 0.10f),
-                            ComposeColor.Transparent
-                        )
-                    ),
-                    RoundedCornerShape(999.dp)
                 )
         )
         Box(

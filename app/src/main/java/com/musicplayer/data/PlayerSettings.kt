@@ -27,19 +27,6 @@ data class TopBarSettings(
     val bgStyle: Int           = 5,   // 0=Градиент, 1=Сплошной, 2=Прозрачный, 3=Матовое стекло
     val bgOpacity: Float       = 0.94f,
 
-    // ── Декоративные орбы ────────────────────────────────────────────────────
-    val orbsVisible: Boolean   = true,
-    val orbCount: Int          = 3,   // 1..5
-    val orbOpacity: Float      = 0.28f,
-    val orbSpeed: Float        = 1.1f,
-    val orbSize: Float         = 0.78f,  // относительный размер (0.2..1.5)
-    val orbColorMode: Int      = 1,   // 0=Accent, 1=Accent+Var, 2=Радуга, 3=Белый
-
-    // ── Частицы ───────────────────────────────────────────────────────────────
-    val sparklesVisible: Boolean = true,
-    val sparkleCount: Int      = 10,
-    val sparkleSpeed: Float    = 1.15f,
-
     // ── Разделитель ───────────────────────────────────────────────────────────
     val dividerStyle: Int      = 3,   // 0=Нет, 1=Линия, 2=Градиент, 3=Свечение
     val dividerOpacity: Float  = 0.72f,
@@ -75,56 +62,6 @@ data class TopBarSettings(
     val subtitleStyle: Int     = 0       // 0=plain, 1=glass pill, 2=accent pill
 )
 
-
-data class OrbSettings(
-    // ── Базовые ──────────────────────────────────────────────────────────────
-    val speed: Float           = 1.0f,
-    val contrast: Float        = 0.7f,
-    val coverage: Float        = 0.9f,
-    val bassReactive: Boolean  = true,
-    val showInLyrics: Boolean  = true,
-    val showInPlayer: Boolean  = true,      // показывать орбы в плеере
-
-    // ── Количество и форма ────────────────────────────────────────────────────
-    val orbCount: Int          = 3,         // 1..8
-    val orbShape: Int          = 0,         // 0=круг, 1=капля, 2=звезда, 3=кристалл
-    val orbSpread: Float       = 0.6f,      // как далеко разбросаны (0..1)
-    val verticalBias: Float    = 0f,        // смещение по вертикали (-1..+1)
-
-    // ── Визуал ────────────────────────────────────────────────────────────────
-    val glowIntensity: Float   = 0.6f,
-    val blurRadius: Float      = 0.7f,
-    val saturation: Float      = 0.8f,      // насыщенность цветов (0..1)
-    val brightness: Float      = 0.75f,     // яркость орбов (0..1)
-    val borderGlow: Boolean    = false,     // светящийся контур орба
-    val borderThickness: Float = 0.3f,      // толщина контура (0..1)
-    val frostedGlass: Boolean  = false,     // эффект матового стекла (overlay)
-    val noiseAmount: Float     = 0.1f,      // зернистость (0..1)
-
-    // ── Цвет ─────────────────────────────────────────────────────────────────
-    val colorShift: Float      = 0f,        // смещение оттенка 0°..360°
-    val colorPullStrength: Float = 0.5f,    // тяга к цвету обложки
-    val colorCycleSpeed: Float = 0f,        // скорость смены цвета (0=выкл)
-    val chromaEffect: Boolean  = false,     // RGB-хрома разлёт
-
-    // ── Движение ─────────────────────────────────────────────────────────────
-    val rotationEnabled: Boolean = true,
-    val magneticToArt: Boolean  = false,
-    val magneticStrength: Float = 0.3f,
-    val pulseOnBeat: Boolean    = true,
-    val beatScale: Float        = 0.18f,    // сила масштаба на бит (0..0.5)
-    val waveMode: Boolean       = false,    // орбы движутся волнами
-    val flowMode: Int           = 0,        // 0=дрейф, 1=орбита, 2=хаос, 3=синус
-
-    // ── Эффекты ───────────────────────────────────────────────────────────────
-    val trailEffect: Boolean    = false,
-    val trailLength: Float      = 0.4f,     // длина следов (0..1)
-    val particleEmission: Boolean = false,
-    val particleCount: Int      = 20,       // количество частиц
-    val kaleidoscopeMode: Boolean = false,
-    val depthEffect: Boolean    = false,    // эффект глубины (ближний/дальний план)
-    val showVisualizerBars: Boolean = false
-)
 
 // ── Custom theme color palette ────────────────────────────────────────────────
 data class CustomThemeColors(

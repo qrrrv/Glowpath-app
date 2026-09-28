@@ -392,100 +392,6 @@ class PreferencesManager(context: Context) {
             }.toMap()
     }
 
-    // ── Orb Settings ──────────────────────────────────────────────────────────
-
-    fun saveOrbSettings(orb: OrbSettings) {
-        prefs.edit()
-            // Базовые
-            .putFloat("orb_speed",           orb.speed)
-            .putFloat("orb_contrast",        orb.contrast)
-            .putFloat("orb_coverage",        orb.coverage)
-            .putBoolean("orb_bass",          orb.bassReactive)
-            .putBoolean("orb_lyrics",        orb.showInLyrics)
-            .putBoolean("orb_in_player",     orb.showInPlayer)
-            // Количество и форма
-            .putInt("orb_count",             orb.orbCount)
-            .putInt("orb_shape",             orb.orbShape)
-            .putFloat("orb_spread",          orb.orbSpread)
-            .putFloat("orb_v_bias",          orb.verticalBias)
-            // Визуал
-            .putFloat("orb_glow",            orb.glowIntensity)
-            .putFloat("orb_blur",            orb.blurRadius)
-            .putFloat("orb_saturation",      orb.saturation)
-            .putFloat("orb_brightness",      orb.brightness)
-            .putBoolean("orb_border_glow",   orb.borderGlow)
-            .putFloat("orb_border_thick",    orb.borderThickness)
-            .putBoolean("orb_frosted",       orb.frostedGlass)
-            .putFloat("orb_noise",           orb.noiseAmount)
-            // Цвет
-            .putFloat("orb_color_shift",     orb.colorShift)
-            .putFloat("orb_color_pull",      orb.colorPullStrength)
-            .putFloat("orb_color_cycle",     orb.colorCycleSpeed)
-            .putBoolean("orb_chroma",        orb.chromaEffect)
-            // Движение
-            .putBoolean("orb_rotation",      orb.rotationEnabled)
-            .putBoolean("orb_magnetic",      orb.magneticToArt)
-            .putFloat("orb_mag_strength",    orb.magneticStrength)
-            .putBoolean("orb_pulse",         orb.pulseOnBeat)
-            .putFloat("orb_beat_scale",      orb.beatScale)
-            .putBoolean("orb_wave_mode",     orb.waveMode)
-            .putInt("orb_flow_mode",         orb.flowMode)
-            // Эффекты
-            .putBoolean("orb_trail",         orb.trailEffect)
-            .putFloat("orb_trail_len",       orb.trailLength)
-            .putBoolean("orb_particles",     orb.particleEmission)
-            .putInt("orb_particle_count",    orb.particleCount)
-            .putBoolean("orb_kaleid",        orb.kaleidoscopeMode)
-            .putBoolean("orb_depth",         orb.depthEffect)
-            .putBoolean("orb_viz_bars",      orb.showVisualizerBars)
-            .apply()
-    }
-
-    fun loadOrbSettings(): OrbSettings = OrbSettings(
-        // Базовые
-        speed             = prefs.getFloat("orb_speed",        1.0f),
-        contrast          = prefs.getFloat("orb_contrast",     0.7f),
-        coverage          = prefs.getFloat("orb_coverage",     0.9f),
-        bassReactive      = prefs.getBoolean("orb_bass",       true),
-        showInLyrics      = prefs.getBoolean("orb_lyrics",     true),
-        showInPlayer      = prefs.getBoolean("orb_in_player",  true),
-        // Количество и форма
-        orbCount          = prefs.getInt("orb_count",          3),
-        orbShape          = prefs.getInt("orb_shape",          0),
-        orbSpread         = prefs.getFloat("orb_spread",       0.6f),
-        verticalBias      = prefs.getFloat("orb_v_bias",       0f),
-        // Визуал
-        glowIntensity     = prefs.getFloat("orb_glow",         0.6f),
-        blurRadius        = prefs.getFloat("orb_blur",         0.7f),
-        saturation        = prefs.getFloat("orb_saturation",   0.8f),
-        brightness        = prefs.getFloat("orb_brightness",   0.75f),
-        borderGlow        = prefs.getBoolean("orb_border_glow",false),
-        borderThickness   = prefs.getFloat("orb_border_thick", 0.3f),
-        frostedGlass      = prefs.getBoolean("orb_frosted",    false),
-        noiseAmount       = prefs.getFloat("orb_noise",        0.1f),
-        // Цвет
-        colorShift        = prefs.getFloat("orb_color_shift",  0f),
-        colorPullStrength = prefs.getFloat("orb_color_pull",   0.5f),
-        colorCycleSpeed   = prefs.getFloat("orb_color_cycle",  0f),
-        chromaEffect      = prefs.getBoolean("orb_chroma",     false),
-        // Движение
-        rotationEnabled   = prefs.getBoolean("orb_rotation",   true),
-        magneticToArt     = prefs.getBoolean("orb_magnetic",   false),
-        magneticStrength  = prefs.getFloat("orb_mag_strength",  0.3f),
-        pulseOnBeat       = prefs.getBoolean("orb_pulse",       true),
-        beatScale         = prefs.getFloat("orb_beat_scale",    0.18f),
-        waveMode          = prefs.getBoolean("orb_wave_mode",   false),
-        flowMode          = prefs.getInt("orb_flow_mode",       0),
-        // Эффекты
-        trailEffect       = prefs.getBoolean("orb_trail",       false),
-        trailLength       = prefs.getFloat("orb_trail_len",     0.4f),
-        particleEmission  = prefs.getBoolean("orb_particles",   false),
-        particleCount     = prefs.getInt("orb_particle_count",  20),
-        kaleidoscopeMode  = prefs.getBoolean("orb_kaleid",      false),
-        depthEffect       = prefs.getBoolean("orb_depth",       false),
-        showVisualizerBars= prefs.getBoolean("orb_viz_bars",    false)
-    )
-
     // ── Top Bar Settings ──────────────────────────────────────────────────────
 
     fun saveTopBarSettings(t: TopBarSettings) {
@@ -507,15 +413,6 @@ class PreferencesManager(context: Context) {
             putFloat("tb_subtitle_size",   t.subtitleSize)
             putInt("tb_bg_style",          t.bgStyle)
             putFloat("tb_bg_opacity",      t.bgOpacity)
-            putBoolean("tb_orbs_visible",  t.orbsVisible)
-            putInt("tb_orb_count",         t.orbCount)
-            putFloat("tb_orb_opacity",     t.orbOpacity)
-            putFloat("tb_orb_speed",       t.orbSpeed)
-            putFloat("tb_orb_size",        t.orbSize)
-            putInt("tb_orb_color_mode",    t.orbColorMode)
-            putBoolean("tb_sparkles",      t.sparklesVisible)
-            putInt("tb_sparkle_count",     t.sparkleCount)
-            putFloat("tb_sparkle_speed",   t.sparkleSpeed)
             putInt("tb_divider_style",     t.dividerStyle)
             putFloat("tb_divider_opacity", t.dividerOpacity)
             putFloat("tb_height_extra",    t.headerHeightExtra)
@@ -557,15 +454,6 @@ class PreferencesManager(context: Context) {
         subtitleSize      = prefs.getFloat("tb_subtitle_size",  11f),
         bgStyle           = prefs.getInt("tb_bg_style",         5),
         bgOpacity         = prefs.getFloat("tb_bg_opacity",     0.94f),
-        orbsVisible       = prefs.getBoolean("tb_orbs_visible", true),
-        orbCount          = prefs.getInt("tb_orb_count",        3),
-        orbOpacity        = prefs.getFloat("tb_orb_opacity",    0.28f),
-        orbSpeed          = prefs.getFloat("tb_orb_speed",      1.1f),
-        orbSize           = prefs.getFloat("tb_orb_size",       0.78f),
-        orbColorMode      = prefs.getInt("tb_orb_color_mode",   1),
-        sparklesVisible   = prefs.getBoolean("tb_sparkles",     true),
-        sparkleCount      = prefs.getInt("tb_sparkle_count",    10),
-        sparkleSpeed      = prefs.getFloat("tb_sparkle_speed",  1.15f),
         dividerStyle      = prefs.getInt("tb_divider_style",    3),
         dividerOpacity    = prefs.getFloat("tb_divider_opacity",0.72f),
         headerHeightExtra = prefs.getFloat("tb_height_extra",   0f),
