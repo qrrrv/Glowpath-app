@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -225,38 +226,44 @@ fun LyricsScreen(
     }
 
     val listState = rememberLazyListState()
-    // Плавный автоскролл к текущей строке. Пока пользователь листает текст,
-    // автоматический переход не вмешивается в его жест.
-    val isUserScrolling = listState.isScrollInProgress
+    // As in BoomingMusic: auto-follow pauses while the user is dragging or
+    // another scroll animation is active.
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(currentLineIndex) {
-        if (currentLineIndex >= 0 && !isUserScrolling && !syncedLines.isNullOrEmpty()) {
-            val current = syncedLines[currentLineIndex]
-            val next = syncedLines.getOrNull(currentLineIndex + 1)
-            val transitionDuration = ((next?.time ?: (current.time + 900)) - current.time)
-                .coerceIn(140, 900)
+        if (currentLineIndex < 0 || syncedLines.isNullOrEmpty() || isUserDragging || listState.isScrollInProgress) {
+            return@LaunchedEffect
+        }
 
-            val layoutInfo = listState.layoutInfo
-            val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-            val activeItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == currentLineIndex }
+        val layoutInfo = listState.layoutInfo
+        val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+        if (viewportHeight <= 0) return@LaunchedEffect
 
-            if (activeItem != null && viewportHeight > 0) {
-                val targetOffset = viewportHeight / 2 - activeItem.size / 2
-                val distance = activeItem.offset - targetOffset
-                if (kotlin.math.abs(distance) > 2) {
-                    listState.animateScrollBy(
-                        value = distance.toFloat(),
-                        animationSpec = tween(
-                            durationMillis = (transitionDuration / 2).coerceIn(120, 520),
-                            easing = FastOutSlowInEasing
-                        )
+        val activeItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == currentLineIndex }
+        val currentTime = syncedLines[currentLineIndex].time
+        val nextTime = syncedLines.getOrNull(currentLineIndex + 1)?.time ?: currentTime + 900
+        val transitionDuration = ((nextTime - currentTime) / 2).coerceIn(100, 1000)
+
+        if (activeItem != null) {
+            val targetOffset = viewportHeight / 2 - activeItem.size / 2
+            val distance = activeItem.offset - targetOffset
+            if (kotlin.math.abs(distance) > 2) {
+                listState.animateScrollBy(
+                    value = distance.toFloat(),
+                    animationSpec = tween(
+                        durationMillis = transitionDuration,
+                        easing = FastOutSlowInEasing
                     )
-                }
-            } else {
-                listState.animateScrollToItem(
-                    index = currentLineIndex,
-                    scrollOffset = -(viewportHeight / 2).coerceAtLeast(0)
                 )
             }
+        } else {
+            // A single jump is only used when the active line is outside the
+            // viewport; every visible-to-visible transition stays animated.
+            val estimatedLineHeight = with(density) { 30.dp.toPx() }
+            val targetOffset = (viewportHeight / 2f - estimatedLineHeight).coerceAtLeast(0f)
+            listState.animateScrollToItem(
+                index = currentLineIndex,
+                scrollOffset = -targetOffset.toInt()
+            )
         }
     }
 
@@ -489,7 +496,7 @@ fun LyricsScreen(
     }
 }
 
-// ── Apple Music-style Karaoke view ────────────────────────────────────────────
+// ── Booming-style synchronized lyrics view ───────────────────────────────────
 @Composable
 private fun KaraokeLyricsView(
     lines: List<SyncedLine>,
@@ -505,224 +512,194 @@ private fun KaraokeLyricsView(
     alignment: Int = 0,
     curlAnim: Boolean = true
 ) {
-    val textAlign = when (alignment) { 1 -> TextAlign.Center; 2 -> TextAlign.End; else -> TextAlign.Start }
+    val textAlign = when (alignment) {
+        1 -> TextAlign.Center
+        2 -> TextAlign.End
+        else -> TextAlign.Start
+    }
     val fontScale by animateFloatAsState(
-        (if (immersiveMode) 1.25f else 1f) * userFontScale,
-        animationSpec = spring<Float>(stiffness = Spring.StiffnessLow), label = "fontScale"
+        targetValue = (if (immersiveMode) 1.25f else 1f) * userFontScale,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "lyrics-font-scale"
     )
-    val animatedFocusIndex by animateFloatAsState(
-        targetValue = currentIndex.coerceAtLeast(0).toFloat(),
-        animationSpec = spring(
-            dampingRatio = 0.62f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "lyricsFocus"
-    )
+
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            state          = listState,
-            modifier       = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 160.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            itemsIndexed(lines, key = { i, _ -> i }) { index, line ->
+            itemsIndexed(
+                items = lines,
+                key = { _, line -> "${line.time}:${line.line}" }
+            ) { index, line ->
                 if (line.line.isBlank()) {
                     Spacer(Modifier.height(16.dp))
                 } else {
                     KaraokeLine(
+                        index = index,
+                        selectedIndex = currentIndex,
+                        selectedLine = index == currentIndex,
                         text = line.line,
-                        discretePosition = index - currentIndex,
-                        relativePosition = index - animatedFocusIndex,
                         fontScale = fontScale,
                         accent = accent,
                         textPrimary = textPrimary,
                         fontFamily = fontFamily,
                         textAlign = textAlign,
-                        curlAnim = curlAnim
+                        enableBlur = curlAnim,
+                        modifier = Modifier.animateItem(
+                            placementSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+                        )
                     )
                 }
             }
         }
-        // Top & bottom fade gradients — controlled by fadeStyle (0=none, 1=soft, 2=strong)
+
+        // The same soft fading edges used by the reference player.
         val fadeColor = MaterialTheme.colorScheme.bgDeep
         if (fadeStyle > 0) {
             val topAlpha = if (fadeStyle == 2) 1f else 0.85f
-            val botAlpha = if (fadeStyle == 2) 1f else 0.9f
-            val topH = if (fadeStyle == 2) 110 else 80
-            val botH = if (fadeStyle == 2) 260 else 220
-            Box(Modifier.fillMaxWidth().height(topH.dp).align(Alignment.TopCenter)
-                .background(Brush.verticalGradient(
-                    0f to fadeColor.copy(alpha = topAlpha),
-                    0.6f to fadeColor.copy(alpha = topAlpha * 0.25f),
-                    1f to Color.Transparent
-                )))
-            // Нижний градиент плавно выходит снизу — текст «вырастает» из панели управления
-            Box(Modifier.fillMaxWidth().height(botH.dp).align(Alignment.BottomCenter)
-                .background(Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.25f to fadeColor.copy(alpha = botAlpha * 0.18f),
-                    0.55f to fadeColor.copy(alpha = botAlpha * 0.58f),
-                    0.8f to fadeColor.copy(alpha = botAlpha * 0.88f),
-                    1f to fadeColor.copy(alpha = botAlpha)
-                )))
+            val bottomAlpha = if (fadeStyle == 2) 1f else 0.9f
+            val topHeight = if (fadeStyle == 2) 110 else 80
+            val bottomHeight = if (fadeStyle == 2) 260 else 220
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(topHeight.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            0f to fadeColor.copy(alpha = topAlpha),
+                            0.6f to fadeColor.copy(alpha = topAlpha * 0.25f),
+                            1f to Color.Transparent
+                        )
+                    )
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(bottomHeight.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.25f to fadeColor.copy(alpha = bottomAlpha * 0.18f),
+                            0.55f to fadeColor.copy(alpha = bottomAlpha * 0.58f),
+                            0.8f to fadeColor.copy(alpha = bottomAlpha * 0.88f),
+                            1f to fadeColor.copy(alpha = bottomAlpha)
+                        )
+                    )
+            )
         }
 
-        // SYNC badge
-        Surface(Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 8.dp), shape = RoundedCornerShape(50), color = accent.copy(0.2f)) {
-            Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 8.dp),
+            shape = RoundedCornerShape(50),
+            color = accent.copy(alpha = 0.2f)
+        ) {
+            Row(
+                Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Icon(Icons.Rounded.MusicNote, null, tint = accent, modifier = Modifier.size(12.dp))
-                Text("SYNC", color = accent, fontFamily = LocalAppFontFamily.current, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text(
+                    "SYNC",
+                    color = accent,
+                    fontFamily = LocalAppFontFamily.current,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
             }
         }
     }
 }
 
 /**
- * Apple Music-style karaoke line — плавные пружинные переходы между строками,
- * размытие дальних строк и лёгкий 3D-curl при входе снизу.
+ * BoomingMusic-style line transition:
+ * - current line scales with a 700 ms tween;
+ * - nearby lines fade and blur instead of jumping;
+ * - LazyColumn placement animation moves the whole stack smoothly.
  */
 @Composable
 private fun KaraokeLine(
+    index: Int,
+    selectedIndex: Int,
+    selectedLine: Boolean,
     text: String,
-    discretePosition: Int,
-    relativePosition: Float,
     fontScale: Float,
     accent: Color,
     textPrimary: Color,
     fontFamily: FontFamily,
-    textAlign: TextAlign = TextAlign.Start,
-    curlAnim: Boolean = true,
-    animStyle: Int = 1  // unused, kept for compat
+    textAlign: TextAlign,
+    enableBlur: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    val absPosition = abs(relativePosition)
-    val focusBlend = (1f - absPosition.coerceAtMost(1.25f) / 1.25f).coerceIn(0f, 1f)
-    val pullKick = remember { Animatable(0f) }
-    var previousDiscretePosition by remember { mutableIntStateOf(discretePosition) }
-    LaunchedEffect(discretePosition) {
-        if (previousDiscretePosition == discretePosition) return@LaunchedEffect
-        val movementDirection = if (discretePosition < previousDiscretePosition) -1f else 1f
-        val distanceWeight = when (abs(discretePosition)) {
-            0 -> 1f
-            1 -> 0.78f
-            2 -> 0.52f
-            3 -> 0.34f
-            else -> 0.2f
-        }
-        pullKick.snapTo(1f * movementDirection * distanceWeight)
-        pullKick.animateTo(
-            0f,
-            animationSpec = keyframes {
-                durationMillis = 440
-                (-0.42f * movementDirection * distanceWeight) at 150 using FastOutSlowInEasing
-                (0.14f * movementDirection * distanceWeight) at 285 using LinearOutSlowInEasing
-            }
-        )
-        previousDiscretePosition = discretePosition
-    }
-    val alpha = lyricsAlphaAt(relativePosition)
-    val fontSize = lyricsFontSizeAt(relativePosition) * fontScale
-    val blurRadius = lyricsBlurAt(relativePosition)
-    val kickOffset = pullKick.value * when (abs(discretePosition)) {
-        0 -> 18f
-        1 -> 12f
-        2 -> 7f
-        else -> 4f
-    }
-    val lineTranslationY = lyricsTranslationAt(relativePosition) + kickOffset
-    val lineRotationX = if (curlAnim) lyricsCurlAt(relativePosition) else 0f
-    val lineColor = lerp(textPrimary, accent, focusBlend)
-    val isCurrent = absPosition < 0.55f
-    val isNearNext = relativePosition in 0.55f..1.45f
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val motionBoost = (abs(pullKick.value) * 0.08f).coerceAtMost(0.08f)
-    val lineScale = 1f + when {
-        isCurrent -> motionBoost
-        abs(discretePosition) <= 1 -> motionBoost * 0.65f
-        else -> motionBoost * 0.35f
-    }
+    val distance = if (selectedIndex >= 0) abs(index - selectedIndex) else 4
+    val scale by animateFloatAsState(
+        targetValue = if (selectedLine) 1.1f else 1f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "lyrics-line-scale-$index"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = when {
+            selectedLine -> 1f
+            distance == 1 -> 0.72f
+            distance == 2 -> 0.46f
+            distance == 3 -> 0.30f
+            else -> 0.20f
+        },
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        label = "lyrics-line-alpha-$index"
+    )
+    val blurRadius by animateFloatAsState(
+        targetValue = if (!enableBlur || selectedLine) 0f else (distance + 1.5f).coerceIn(0f, 10f),
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        label = "lyrics-line-blur-$index"
+    )
+    val fontSize by animateFloatAsState(
+        targetValue = (if (selectedLine) 30f else 19f) * fontScale,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "lyrics-line-size-$index"
+    )
+    val lineColor by animateColorAsState(
+        targetValue = if (selectedLine) accent else textPrimary,
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        label = "lyrics-line-color-$index"
+    )
 
-    val bleedPad = if (blurRadius > 0.5f) (blurRadius * 2.5f).coerceAtMost(20f).dp else 0.dp
-    val blurMod  = if (blurRadius > 0.5f) Modifier.blur(blurRadius.dp) else Modifier
-
+    val blurModifier = if (blurRadius > 0.5f) Modifier.blur(blurRadius.dp) else Modifier
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = if (isCurrent) 8.dp else 2.dp)
+            .padding(vertical = if (selectedLine) 8.dp else 2.dp)
             .graphicsLayer {
-                rotationX = lineRotationX
-                translationY = with(density) { lineTranslationY.dp.toPx() }
-                scaleX = lineScale
-                scaleY = lineScale
-                cameraDistance = 10f * density.density
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
+                    pivotFractionX = when (textAlign) {
+                        TextAlign.End -> 1f
+                        TextAlign.Center -> 0.5f
+                        else -> 0f
+                    },
+                    pivotFractionY = 1f
+                )
             }
+            .then(blurModifier)
     ) {
-        Box(modifier = Modifier.fillMaxWidth().then(blurMod)) {
-            Text(
-                text       = text,
-                color      = lineColor.copy(alpha = (alpha + motionBoost * 0.7f).coerceAtMost(1f)),
-                fontFamily = fontFamily,
-                fontWeight = if (isCurrent) FontWeight.ExtraBold
-                             else if (isNearNext) FontWeight.SemiBold
-                             else FontWeight.Normal,
-                fontSize   = fontSize.sp,
-                lineHeight = (fontSize * 1.35f).sp,
-                textAlign  = textAlign,
-                modifier   = Modifier.fillMaxWidth().padding(vertical = bleedPad)
-            )
-        }
+        Text(
+            text = text,
+            color = lineColor.copy(alpha = alpha),
+            fontFamily = fontFamily,
+            fontWeight = if (selectedLine) FontWeight.ExtraBold else FontWeight.Normal,
+            fontSize = fontSize.sp,
+            lineHeight = (fontSize * 1.35f).sp,
+            textAlign = textAlign,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        )
     }
-}
-
-private fun lyricsRangeProgress(value: Float, start: Float, end: Float): Float =
-    ((value - start) / (end - start)).coerceIn(0f, 1f)
-
-private fun lyricsLerp(start: Float, end: Float, fraction: Float): Float =
-    start + (end - start) * fraction
-
-private fun lyricsAlphaAt(position: Float): Float = when {
-    position <= -2f -> 0.2f
-    position < -1f -> lyricsLerp(0.2f, 0.45f, lyricsRangeProgress(position, -2f, -1f))
-    position < 0f -> lyricsLerp(0.45f, 1f, lyricsRangeProgress(position, -1f, 0f))
-    position < 1f -> lyricsLerp(1f, 0.8f, lyricsRangeProgress(position, 0f, 1f))
-    position < 2f -> lyricsLerp(0.8f, 0.54f, lyricsRangeProgress(position, 1f, 2f))
-    position < 3f -> lyricsLerp(0.54f, 0.34f, lyricsRangeProgress(position, 2f, 3f))
-    else -> lyricsLerp(0.34f, 0.24f, lyricsRangeProgress(position, 3f, 4f))
-}
-
-private fun lyricsFontSizeAt(position: Float): Float = when {
-    position <= -2f -> 16f
-    position < -1f -> lyricsLerp(16f, 18f, lyricsRangeProgress(position, -2f, -1f))
-    position < 0f -> lyricsLerp(18f, 30f, lyricsRangeProgress(position, -1f, 0f))
-    position < 1f -> lyricsLerp(30f, 22f, lyricsRangeProgress(position, 0f, 1f))
-    position < 2f -> lyricsLerp(22f, 19f, lyricsRangeProgress(position, 1f, 2f))
-    position < 3f -> lyricsLerp(19f, 17.5f, lyricsRangeProgress(position, 2f, 3f))
-    else -> lyricsLerp(17.5f, 16.5f, lyricsRangeProgress(position, 3f, 4f))
-}
-
-private fun lyricsBlurAt(position: Float): Float = when {
-    position <= 0f -> 0f
-    position < 1f -> lyricsLerp(0f, 1.5f, lyricsRangeProgress(position, 0f, 1f))
-    position < 2f -> lyricsLerp(1.5f, 4.5f, lyricsRangeProgress(position, 1f, 2f))
-    position < 3f -> lyricsLerp(4.5f, 7.5f, lyricsRangeProgress(position, 2f, 3f))
-    else -> lyricsLerp(7.5f, 10.5f, lyricsRangeProgress(position, 3f, 4f))
-}
-
-private fun lyricsTranslationAt(position: Float): Float = when {
-    position <= -2f -> -6f
-    position < -1f -> lyricsLerp(-6f, -2.5f, lyricsRangeProgress(position, -2f, -1f))
-    position < 0f -> lyricsLerp(-2.5f, 0f, lyricsRangeProgress(position, -1f, 0f))
-    position < 1f -> lyricsLerp(0f, 4f, lyricsRangeProgress(position, 0f, 1f))
-    position < 2f -> lyricsLerp(4f, 7.5f, lyricsRangeProgress(position, 1f, 2f))
-    position < 3f -> lyricsLerp(7.5f, 9.5f, lyricsRangeProgress(position, 2f, 3f))
-    else -> lyricsLerp(9.5f, 11f, lyricsRangeProgress(position, 3f, 4f))
-}
-
-private fun lyricsCurlAt(position: Float): Float = when {
-    position <= 0f -> 0f
-    position < 1f -> lyricsLerp(0f, -3.5f, lyricsRangeProgress(position, 0f, 1f))
-    position < 2f -> lyricsLerp(-3.5f, -7f, lyricsRangeProgress(position, 1f, 2f))
-    position < 3f -> lyricsLerp(-7f, -10f, lyricsRangeProgress(position, 2f, 3f))
-    else -> lyricsLerp(-10f, -12f, lyricsRangeProgress(position, 3f, 4f))
 }
 
 // ── Plain lyrics view ─────────────────────────────────────────────────────────
