@@ -23,7 +23,7 @@ import kotlin.math.abs
  *  – No TagLib (skip embedded lyrics extraction)
  *  – Uses plain HttpURLConnection via LrcLibApiService
  *
- * Source priority (default): API → Local LRC file
+ * Source priority: local LRC → cached result → BetterLyrics → LRCLIB → optional Genius.
  */
 class LyricsRepository(private val context: Context) {
 
@@ -48,7 +48,7 @@ class LyricsRepository(private val context: Context) {
 
     /**
      * Main entry: fetch lyrics for a song.
-     * Order: memory cache → disk JSON cache → local .lrc file → BetterLyrics TTML
+     * Order follows BoomingMusic: memory cache → local .lrc file → disk cache → BetterLyrics TTML
      * → LRCLIB API → Genius API (only when configured with a real token).
      * Returns null if nothing found.
      */
@@ -59,7 +59,13 @@ class LyricsRepository(private val context: Context) {
                 synchronized(memCache) { memCache[song.id] }?.let { return@withContext it }
             }
 
-            // 2. Disk JSON cache (previously fetched from API)
+            // 2. Local .lrc file wins over a stale downloaded result, as in BoomingMusic.
+            findLocalLrcFile(song)?.let { local ->
+                cacheInMemory(song.id, local)
+                return@withContext local
+            }
+
+            // 3. Disk JSON cache (previously fetched from an API)
             if (!forceRefresh) {
                 loadFromDiskCache(song.id)?.let { cached ->
                     if (cached.isValid()) {
@@ -67,12 +73,6 @@ class LyricsRepository(private val context: Context) {
                         return@withContext cached
                     }
                 }
-            }
-
-            // 3. Local .lrc file next to the audio file
-            findLocalLrcFile(song)?.let { local ->
-                cacheInMemory(song.id, local)
-                return@withContext local
             }
 
             // 4. BetterLyrics: Apple-style TTML with line and word timestamps.
@@ -130,7 +130,12 @@ class LyricsRepository(private val context: Context) {
         // Ask the exact endpoint first, then use several search variants.
         val strategies: List<Pair<String, suspend () -> List<LrcLibResponse>>> = buildList {
             add("track+artist"   to { LrcLibApiService.searchLyrics(trackName = cleanTitle,  artistName = cleanArtist) })
-            add("combined_query" to { LrcLibApiService.searchLyrics(query = "$cleanArtist $cleanTitle") })
+            add("combined_query" to {
+                LrcLibApiService.searchLyrics(
+                    query = "$cleanArtist $cleanTitle",
+                    albumName = cleanMetadata(song.album)
+                )
+            })
             if (simpleArtist != cleanArtist || simpleTitle != cleanTitle) {
                 add("simplified" to { LrcLibApiService.searchLyrics(trackName = simpleTitle, artistName = simpleArtist) })
             }
@@ -212,16 +217,41 @@ class LyricsRepository(private val context: Context) {
         .replace(Regex("\\s*\\[(?i:official|video|audio|lyrics|lyric|live|acoustic|remix|feat\\.).*?\\]"), "")
         .trim()
 
+    /** Same title/artist scoring strategy used by BoomingMusic's LRCLIB provider. */
     private fun textMatchScore(expected: String, actual: String): Double {
         val left = normalizeForMatch(expected)
         val right = normalizeForMatch(actual)
         if (left.isEmpty() || right.isEmpty()) return 0.0
+        return jaroWinkler(left, right)
+    }
+
+    private fun jaroWinkler(left: String, right: String): Double {
         if (left == right) return 1.0
-        if (left.contains(right) || right.contains(left)) return 0.82
-        val leftWords = left.split(' ').toSet()
-        val rightWords = right.split(' ').toSet()
-        return (leftWords.intersect(rightWords).size.toDouble() /
-            maxOf(leftWords.size, rightWords.size)).coerceIn(0.0, 0.75)
+        val maxDistance = (maxOf(left.length, right.length) / 2 - 1).coerceAtLeast(0)
+        val leftMatches = BooleanArray(left.length)
+        val rightMatches = BooleanArray(right.length)
+        var matches = 0
+        for (i in left.indices) {
+            val start = (i - maxDistance).coerceAtLeast(0)
+            val end = (i + maxDistance + 1).coerceAtMost(right.length)
+            for (j in start until end) {
+                if (!rightMatches[j] && left[i] == right[j]) {
+                    leftMatches[i] = true
+                    rightMatches[j] = true
+                    matches++
+                    break
+                }
+            }
+        }
+        if (matches == 0) return 0.0
+        val leftOrdered = left.indices.filter { leftMatches[it] }.map { left[it] }
+        val rightOrdered = right.indices.filter { rightMatches[it] }.map { right[it] }
+        var transpositions = 0
+        for (i in leftOrdered.indices) if (leftOrdered[i] != rightOrdered[i]) transpositions++
+        val m = matches.toDouble()
+        val jaro = ((m / left.length) + (m / right.length) + ((m - transpositions / 2.0) / m)) / 3.0
+        val prefix = left.zip(right).take(4).takeWhile { it.first == it.second }.count()
+        return jaro + prefix * 0.1 * (1.0 - jaro)
     }
 
     private fun normalizeForMatch(value: String): String = value

@@ -709,7 +709,7 @@ private fun PortraitPlayerContent(
             alpha = topReveal
             translationY = lerpFloat((-18).dp.toPx(), 0f, topReveal)
         }) {
-            TopBar(onBack, onSettingsClick, swipeProgress)
+            TopBar(onBack, onLyricsClick, onSettingsClick, swipeProgress)
         }
         Spacer(Modifier.height(20.dp))
         AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
@@ -718,13 +718,16 @@ private fun PortraitPlayerContent(
             alpha = contentReveal
             translationY = contentOffset
         }) {
-            SongMetaSection(song, isFavourite, onLyricsClick, viewModel) { viewModel.toggleFavourite(song.id) }
+            SongMetaSection(song, viewModel)
             Spacer(Modifier.height(24.dp))
             ProgressSection(currentPosition, duration, isPlaying, viewModel)
-            Spacer(Modifier.height(16.dp))
+            // BoomingMusic keeps the transport row visually separated from the
+            // title/seek section instead of crowding all controls together.
+            Spacer(Modifier.height(24.dp))
             ControlsSection(settings, isPlaying, viewModel)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(14.dp))
             BottomToggleRow(settings, isFavourite, viewModel, song.id)
+            Spacer(Modifier.height(12.dp))
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -747,7 +750,7 @@ private fun LandscapePlayerContent(
                 alpha = sideReveal
                 translationY = lerpFloat((-14).dp.toPx(), 0f, sideReveal)
             }) {
-                TopBar(onBack, onSettingsClick, swipeProgress)
+                TopBar(onBack, onLyricsClick, onSettingsClick, swipeProgress)
             }
             Spacer(Modifier.height(8.dp))
             AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
@@ -757,7 +760,7 @@ private fun LandscapePlayerContent(
             alpha = sideReveal
             translationY = sideOffset
         }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
-            SongMetaSection(song, isFavourite, onLyricsClick, viewModel) { viewModel.toggleFavourite(song.id) }
+            SongMetaSection(song, viewModel)
             ProgressSection(currentPosition, duration, isPlaying, viewModel)
             ControlsSection(settings, isPlaying, viewModel)
             BottomToggleRow(settings, isFavourite, viewModel, song.id)
@@ -766,26 +769,37 @@ private fun LandscapePlayerContent(
 }
 
 @Composable
-private fun TopBar(onBack: () -> Unit, onSettingsClick: () -> Unit, swipeProgress: Float = 0f) {
+private fun TopBar(onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit, swipeProgress: Float = 0f) {
     val c = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        Text("СЕЙЧАС ИГРАЕТ", color = c.textDisabled, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.1f.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         AnimatedBackButton(
             onBack = onBack,
             containerColor = c.surfaceContainerLow,
             iconColor = c.onSurface,
             swipeProgress = swipeProgress
         )
-        Spacer(Modifier.weight(1f))
-        Text("СЕЙЧАС ИГРАЕТ", color = c.textDisabled, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.1f.sp)
-        Spacer(Modifier.weight(1f))
-        FilledIconButton(
-            onSettingsClick,
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = c.surfaceContainerLow,
-                contentColor = c.onSurface
-            )
-        ) {
-            Icon(Icons.Rounded.Tune, "Настройки трека")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilledIconButton(
+                onLyricsClick,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = c.surfaceContainerLow,
+                    contentColor = c.onSurface
+                )
+            ) {
+                Icon(Icons.Rounded.Lyrics, "Текст песни")
+            }
+            FilledIconButton(
+                onSettingsClick,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = c.surfaceContainerLow,
+                    contentColor = c.onSurface
+                )
+            ) {
+                Icon(Icons.Rounded.Tune, "Настройки трека")
+            }
+        }
         }
     }
 }
@@ -971,15 +985,14 @@ private fun AlbumArtSection(
 }
 
 @Composable
-private fun SongMetaSection(song: com.musicplayer.data.Song, isFavourite: Boolean, onLyricsClick: () -> Unit, viewModel: MusicViewModel, onFavToggle: () -> Unit) {
+private fun SongMetaSection(song: com.musicplayer.data.Song, viewModel: MusicViewModel) {
     val c = MaterialTheme.colorScheme
     val settings by viewModel.settings.collectAsState()
     val customTitleMap  by viewModel.customTitleMap.collectAsState()
     val customArtistMap by viewModel.customArtistMap.collectAsState()
     val displayTitle  = customTitleMap[song.id]  ?: song.title
     val displayArtist = customArtistMap[song.id] ?: song.artist
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        AnimatedContent(
+    AnimatedContent(
             targetState = song.id,
             transitionSpec = {
                 (fadeIn(tween(350)) + slideInHorizontally { it / 5 })
@@ -987,9 +1000,9 @@ private fun SongMetaSection(song: com.musicplayer.data.Song, isFavourite: Boolea
                     .using(SizeTransform(clip = false))
             },
             label = "songMeta",
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.fillMaxWidth()
         ) { _ ->
-            Column {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 val shadowModifier = if (settings.textShadowEnabled) {
                     Modifier
                 } else Modifier
@@ -1010,7 +1023,7 @@ private fun SongMetaSection(song: com.musicplayer.data.Song, isFavourite: Boolea
                             blurRadius = 12f * settings.textShadowIntensity
                         ) else null
                     ),
-                    textAlign = TextAlign.Start, gradientEdgeColor = c.bgDeep, modifier = Modifier.fillMaxWidth()
+                    textAlign = TextAlign.Center, gradientEdgeColor = c.bgDeep, modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -1023,7 +1036,9 @@ private fun SongMetaSection(song: com.musicplayer.data.Song, isFavourite: Boolea
                     fontSize = settings.playerArtistSize.sp,
                     fontStyle = if (settings.artistNameStyle == 1) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                     letterSpacing = settings.letterSpacingEm.em,
+                    textAlign = TextAlign.Center,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
                     style = if (settings.textShadowEnabled) androidx.compose.ui.text.TextStyle(
                         shadow = androidx.compose.ui.graphics.Shadow(
                             color = c.accent.copy(alpha = settings.textShadowIntensity * 0.5f),
@@ -1034,17 +1049,6 @@ private fun SongMetaSection(song: com.musicplayer.data.Song, isFavourite: Boolea
                 )
             }
         }
-        Spacer(Modifier.width(12.dp))
-        FilledIconButton(
-            onLyricsClick,
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = c.surfaceContainerLow,
-                contentColor = c.onSurface
-            )
-        ) {
-            Icon(Icons.Rounded.Lyrics, null, Modifier.size(20.dp))
-        }
-    }
 }
 
 @Composable
