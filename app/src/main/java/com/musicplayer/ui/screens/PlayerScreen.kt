@@ -1057,20 +1057,37 @@ private fun ProgressSection(currentPosition: Long, duration: Long, isPlaying: Bo
     val appStyle = com.musicplayer.ui.theme.LocalAppStyle.current
     val settings by viewModel.settings.collectAsState()
     val progress = if (duration > 0L) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    // Keep dragging local to Compose. Calling seekTo() for every pointer event
+    // makes MediaPlayer, transition scheduling and bridge/notification updates
+    // compete with the slider animation. BoomingMusic commits the seek on release.
+    var isScrubbing by remember { mutableStateOf(false) }
+    var sliderProgress by remember(duration) { mutableFloatStateOf(progress) }
+    LaunchedEffect(progress, isScrubbing) {
+        if (!isScrubbing) sliderProgress = progress
+    }
+    val commitSeek: (Float) -> Unit = { target ->
+        val safeTarget = target.coerceIn(0f, 1f)
+        sliderProgress = safeTarget
+        viewModel.seekTo((safeTarget * duration).toLong())
+        isScrubbing = false
+    }
+    val displayedPosition = if (isScrubbing) (sliderProgress * duration).toLong() else currentPosition
     Column(Modifier.fillMaxWidth()) {
         if (settings.useWavySeekBar) {
             WavyMusicSlider(
-                value = progress,
-                onValueChange = { viewModel.seekTo((it * duration).toLong()) },
+                value = sliderProgress,
+                onValueChange = { sliderProgress = it; isScrubbing = true },
                 isPlaying = isPlaying,
                 modifier = Modifier.fillMaxWidth(),
-                trackHeight = appStyle.sliderTrackHeight.dp.coerceIn(3.dp, 16.dp)
+                trackHeight = appStyle.sliderTrackHeight.dp.coerceIn(3.dp, 16.dp),
+                onValueChangeFinished = { commitSeek(sliderProgress) }
             )
         } else {
             Slider(
-                value = progress,
-                onValueChange = { viewModel.seekTo((it * duration).toLong()) },
+                value = sliderProgress,
+                onValueChange = { sliderProgress = it; isScrubbing = true },
                 modifier = Modifier.fillMaxWidth(),
+                onValueChangeFinished = { commitSeek(sliderProgress) },
                 colors = SliderDefaults.colors(
                     thumbColor = c.primary,
                     activeTrackColor = c.primary,
@@ -1080,7 +1097,7 @@ private fun ProgressSection(currentPosition: Long, duration: Long, isPlaying: Bo
         }
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(currentPosition.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
+            Text(displayedPosition.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
             Text(duration.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
         }
     }
