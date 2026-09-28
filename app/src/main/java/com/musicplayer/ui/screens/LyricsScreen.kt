@@ -1,8 +1,10 @@
 package com.musicplayer.ui.screens
 
+import android.os.SystemClock
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -47,11 +50,42 @@ import androidx.compose.animation.animateColorAsState
 import androidx.palette.graphics.Palette
 import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import com.musicplayer.viewmodel.MusicViewModel
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 import com.airbnb.lottie.compose.*
+
+@Composable
+private fun rememberSmoothPlaybackPosition(
+    songId: Long,
+    playbackPosition: Long,
+    playbackSpeed: Float,
+    isPlaying: Boolean
+): Long {
+    var position by remember(songId) { mutableLongStateOf(playbackPosition) }
+
+    // The player position flow is intentionally coarse. Interpolate between its
+    // updates on frame boundaries so the lyric transition happens at the exact
+    // timestamp instead of waiting for the next StateFlow emission.
+    LaunchedEffect(songId, playbackPosition, playbackSpeed, isPlaying) {
+        val baseRealtime = SystemClock.elapsedRealtime()
+        if (!isPlaying) {
+            position = playbackPosition
+            return@LaunchedEffect
+        }
+
+        while (isActive) {
+            withFrameNanos {
+                val elapsed = SystemClock.elapsedRealtime() - baseRealtime
+                position = playbackPosition + (elapsed * playbackSpeed).toLong()
+            }
+        }
+    }
+
+    return position
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +101,7 @@ fun LyricsScreen(
     val song            by viewModel.currentSong.collectAsState()
     val isPlaying       by viewModel.isPlaying.collectAsState()
     val currentPosition by viewModel.currentPosition.collectAsState()
+    val playbackSpeed   by viewModel.playbackSpeed.collectAsState()
     val lyricsState     by viewModel.lyricsState.collectAsState()
     val customArtMap    by viewModel.customArtMap.collectAsState()
     val customTitleMap  by viewModel.customTitleMap.collectAsState()
@@ -171,12 +206,18 @@ fun LyricsScreen(
     // ── Karaoke current line ──────────────────────────────────────────────────
     val syncedLines: List<SyncedLine>? = (lyricsState as? LyricsState.Found)?.lyrics?.synced
     val plainLines:  List<String>?     = (lyricsState as? LyricsState.Found)?.lyrics?.plain
+    val smoothPosition = rememberSmoothPlaybackPosition(
+        songId = song!!.id,
+        playbackPosition = currentPosition,
+        playbackSpeed = playbackSpeed,
+        isPlaying = isPlaying
+    )
 
-    val currentLineIndex by remember(syncedLines, currentPosition) {
+    val currentLineIndex by remember(syncedLines, smoothPosition) {
         derivedStateOf {
             if (syncedLines.isNullOrEmpty()) -1
             else {
-                val posMs = currentPosition.toInt()
+                val posMs = smoothPosition.toInt()
                 val idx   = syncedLines.indexOfLast { it.time <= posMs }
                 if (idx < 0 && syncedLines.isNotEmpty()) 0 else idx
             }
@@ -184,17 +225,38 @@ fun LyricsScreen(
     }
 
     val listState = rememberLazyListState()
-    // Плавный автоскролл к текущей строке
-    // Используем флаг: если пользователь сам листает — не прерываем его
+    // Плавный автоскролл к текущей строке. Пока пользователь листает текст,
+    // автоматический переход не вмешивается в его жест.
     val isUserScrolling = listState.isScrollInProgress
     LaunchedEffect(currentLineIndex) {
-        if (currentLineIndex >= 2 && !isUserScrolling) {
-            // Маленькая задержка оставляет время для рывка строки до автоскролла.
-            kotlinx.coroutines.delay(36)
-            listState.animateScrollToItem(
-                index = (currentLineIndex - 2).coerceAtLeast(0),
-                scrollOffset = 0
-            )
+        if (currentLineIndex >= 0 && !isUserScrolling && !syncedLines.isNullOrEmpty()) {
+            val current = syncedLines[currentLineIndex]
+            val next = syncedLines.getOrNull(currentLineIndex + 1)
+            val transitionDuration = ((next?.time ?: (current.time + 900)) - current.time)
+                .coerceIn(140, 900)
+
+            val layoutInfo = listState.layoutInfo
+            val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+            val activeItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == currentLineIndex }
+
+            if (activeItem != null && viewportHeight > 0) {
+                val targetOffset = viewportHeight / 2 - activeItem.size / 2
+                val distance = activeItem.offset - targetOffset
+                if (kotlin.math.abs(distance) > 2) {
+                    listState.animateScrollBy(
+                        value = distance.toFloat(),
+                        animationSpec = tween(
+                            durationMillis = (transitionDuration / 2).coerceIn(120, 520),
+                            easing = FastOutSlowInEasing
+                        )
+                    )
+                }
+            } else {
+                listState.animateScrollToItem(
+                    index = currentLineIndex,
+                    scrollOffset = -(viewportHeight / 2).coerceAtLeast(0)
+                )
+            }
         }
     }
 
