@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
+import coil.size.Size as CoilSize
 import com.musicplayer.R
 import com.musicplayer.MiniPlayer
 import com.musicplayer.data.OrbSettings
@@ -473,10 +474,9 @@ fun PlayerScreen(
 
     var showTrackSettings by remember { mutableStateOf(false) }
 
-    // ── Pulse animation ───────────────────────────────────────────────────────
-    val pulseAnim = rememberInfiniteTransition(label = "pulse")
-    val pulse by pulseAnim.animateFloat(0.97f, 1.03f, infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), AnimRepeatMode.Reverse), "p")
-    val artScale by animateFloatAsState(if (isPlaying) pulse else 0.88f, spring(stiffness = Spring.StiffnessMediumLow), label = "as")
+    // Keep the full-screen artwork stable. The previous pulse animation resized the
+    // image on every frame and made the cover visibly jump while playback progressed.
+    val artScale = 1f
 
     val scope = rememberCoroutineScope()
     val openProgress = remember { Animatable(0f) }
@@ -882,43 +882,10 @@ private fun AlbumArtSection(
     val artCorner = androidx.compose.ui.unit.Dp(appStyle.cardCornerRadius.coerceIn(8f, 64f))
     val artShape  = RoundedCornerShape(artCorner)
     var swipeDragX by remember { mutableFloatStateOf(0f) }
-    val densityState = LocalDensity.current
-    val openEased = FastOutSlowInEasing.transform(openProgress.coerceIn(0f, 1f))
-    val enterShiftX = with(densityState) { lerpFloat((-118).dp.toPx(), 0f, openEased) }
-    val enterShiftY = with(densityState) { lerpFloat(220.dp.toPx(), 0f, openEased) }
-    val enterScale = lerpFloat(0.34f, 1f, openEased)
-    val enterAlpha = ((openProgress - 0.02f) / 0.98f).coerceIn(0f, 1f)
-
-    // ── Album Art extra animations ────────────────────────────────────────────
-    val artEasing = when (animParams.albumArtEasing) {
-        1 -> FastOutSlowInEasing
-        2 -> FastOutLinearInEasing
-        3 -> LinearEasing
-        4 -> CubicBezierEasing(0.2f, 1.25f, 0.38f, 1f)
-        5 -> CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)
-        else -> FastOutSlowInEasing
-    }
-    fun artMs(base: Int) = (base / animParams.albumArtSpeed.coerceIn(0.2f, 4f)).toInt().coerceAtLeast(60)
-    val infiniteArt = rememberInfiniteTransition(label = "art_inf")
-    // Vinyl rotation (anim 5)
-    val vinylRotation by infiniteArt.animateFloat(0f, 360f,
-        infiniteRepeatable(tween(artMs(3000), easing = LinearEasing)), label = "vinyl")
-    // Pulse / breathe (anim 2 & 3)
-    val artPulse by infiniteArt.animateFloat(0.97f, 1.04f,
-        infiniteRepeatable(tween(artMs(1000), easing = artEasing), AnimRepeatMode.Reverse), label = "pulse")
-    // Glitch offset (anim 6)
-    val glitchX by infiniteArt.animateFloat(-4f, 4f,
-        infiniteRepeatable(tween(artMs(120), easing = LinearEasing), AnimRepeatMode.Reverse), label = "glitch")
-    // Swing (anim 7)
-    val swingRot by infiniteArt.animateFloat(-6f, 6f,
-        infiniteRepeatable(tween(artMs(1200), easing = artEasing), AnimRepeatMode.Reverse), label = "swing")
-    // Orbit / wave (anim 8 & 9)
-    val orbitRotation by infiniteArt.animateFloat(0f, 360f,
-        infiniteRepeatable(tween(artMs(2200), easing = LinearEasing)), label = "orbit")
-    val waveShift by infiniteArt.animateFloat(-6f, 6f,
-        infiniteRepeatable(tween(artMs(1200), easing = artEasing), AnimRepeatMode.Reverse), label = "waveShift")
-    val waveStretch by infiniteArt.animateFloat(0.97f, 1.04f,
-        infiniteRepeatable(tween(artMs(900), easing = artEasing), AnimRepeatMode.Reverse), label = "waveStretch")
+    val density = LocalDensity.current.density
+    // The artwork is intentionally static in the full-screen player. Navigation
+    // still supports horizontal swipe and page-flip, but playback no longer causes
+    // continuous scale/rotation/vertical translation recompositions.
 
     Box(contentAlignment = Alignment.BottomEnd) {
         Box(
@@ -926,38 +893,12 @@ private fun AlbumArtSection(
                 .size(280.dp * artScale)
                 .graphicsLayer {
                     rotationY = flipRotY + swipeDragX * 0.08f
-                    translationX = enterShiftX + artSlideX * size.width * 0.6f + when (albumArtAnim) {
-                        4 -> if (isPlaying) artSlideX * 12f else 0f  // Параллакс
-                        6 -> glitchX                                  // Glitch
-                        else -> 0f
-                    }
-                    translationY = enterShiftY + when (albumArtAnim) {
-                        9 -> if (isPlaying) waveShift else 0f
-                        else -> 0f
-                    }
-                    alpha = enterAlpha
-                    scaleX = enterScale
-                    scaleY = enterScale
+                    translationX = artSlideX * size.width * 0.6f
+                    translationY = 0f
+                    alpha = 1f
+                    scaleX = artScale
+                    scaleY = artScale
                     cameraDistance = 12f * density
-                    when (albumArtAnim) {
-                        1 -> rotationZ = if (isPlaying) vinylRotation else 0f  // Вращение
-                        5 -> rotationZ = vinylRotation                          // Vinyl
-                        7 -> rotationZ = swingRot                               // Качели
-                        2 -> {
-                            scaleX = enterScale * if (isPlaying) artPulse else 1f
-                            scaleY = enterScale * if (isPlaying) artPulse else 1f
-                        }
-                        3 -> {
-                            scaleX = enterScale * (artPulse * 0.97f)
-                            scaleY = enterScale * (artPulse * 0.97f)
-                        }
-                        8 -> rotationZ = if (isPlaying) orbitRotation * 0.12f else 0f
-                        9 -> {
-                            scaleX = enterScale * if (isPlaying) waveStretch else 1f
-                            scaleY = enterScale * if (isPlaying) (2f - waveStretch) else 1f
-                        }
-                        else -> {}
-                    }
                 }
                 .pointerInput(Unit) {
                     val pointerScope = this
@@ -992,59 +933,19 @@ private fun AlbumArtSection(
             contentAlignment = Alignment.Center
         ) {
             when {
-                customArtUri != null -> AsyncImage(customArtUri, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                song.albumArtUri != null -> AsyncImage(song.albumArtUri, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                customArtUri != null -> OptimizedAlbumArt(
+                    uri = customArtUri,
+                    title = song.title,
+                    modifier = Modifier.fillMaxSize(),
+                    targetSize = CoilSize(640, 640)
+                )
+                song.albumArtUri != null -> OptimizedAlbumArt(
+                    uri = song.albumArtUri,
+                    title = song.title,
+                    modifier = Modifier.fillMaxSize(),
+                    targetSize = CoilSize(640, 640)
+                )
                 else -> Icon(painterResource(instrumentIconRes(song.id)), null, tint = c.accentMuted, modifier = Modifier.size(80.dp))
-            }
-
-            if (albumArtAnim == 8) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Box(
-                        Modifier
-                            .fillMaxSize(0.86f)
-                            .border(1.dp, c.accent.copy(alpha = 0.24f), CircleShape)
-                    )
-                    Box(
-                        Modifier
-                            .fillMaxSize(0.92f)
-                            .graphicsLayer { rotationZ = if (isPlaying) orbitRotation else 0f }
-                    ) {
-                        Box(
-                            Modifier
-                                .align(Alignment.TopCenter)
-                                .offset(y = (-4).dp)
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(c.accent.copy(alpha = 0.85f))
-                                .border(1.dp, c.bgDeep.copy(alpha = 0.4f), CircleShape)
-                        )
-                    }
-                }
-            }
-
-            if (albumArtAnim == 9) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    listOf(18f, 32f, 24f, 36f).forEachIndexed { i, base ->
-                        val barWave = 0.7f + kotlin.math.abs(sin((orbitRotation / 180f * Math.PI + i).toFloat())) * 0.5f
-                        Box(
-                            Modifier
-                                .width(7.dp)
-                                .height((base * if (isPlaying) barWave else 0.7f).dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(c.textPrimary.copy(alpha = 0.84f), c.accent.copy(alpha = 0.52f))
-                                    )
-                                )
-                        )
-                    }
-                }
             }
 
             if (swipeDragX.absoluteValue > 20f) {
