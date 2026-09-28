@@ -611,6 +611,26 @@ private fun SettingsOverviewCard(
 }
 
 @Composable
+private fun SettingsToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    icon: ImageVector,
+    tint: Color,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    ListItem(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainerHighest),
+        headlineContent = { Text(title, color = colors.onSurface, fontFamily = LocalAppFontFamily.current, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) },
+        supportingContent = { Text(subtitle, color = colors.onSurfaceVariant, fontFamily = LocalAppFontFamily.current, fontSize = 12.sp) },
+        leadingContent = { SettingsLeadingIcon(icon = icon, tint = tint) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
+    )
+}
+
+@Composable
 private fun SettingsSearchResults(
     query: String,
     onTheme: () -> Unit,
@@ -3130,34 +3150,34 @@ private fun TypographyStudioDialog(
                         }
                         item {
                             TypographyControlSection("Отображение", "Показывать, прятать и стилизовать детали") {
-                                OrbToggleRow("Две строки названия", "Длинные названия могут занимать 2 строки", settings.trackTitleTwoLines, Icons.Rounded.FormatAlignLeft, c.accent) {
+                                SettingsToggleRow("Две строки названия", "Длинные названия могут занимать 2 строки", settings.trackTitleTwoLines, Icons.Rounded.FormatAlignLeft, c.accent) {
                                     viewModel.updateSettings(settings.copy(trackTitleTwoLines = it))
                                 }
-                                OrbToggleRow("Жирные заголовки", "Лёгкий усилитель title", settings.boldTitles, Icons.Rounded.FormatBold, c.accentVar) {
+                                SettingsToggleRow("Жирные заголовки", "Лёгкий усилитель title", settings.boldTitles, Icons.Rounded.FormatBold, c.accentVar) {
                                     viewModel.updateSettings(settings.copy(boldTitles = it))
                                 }
-                                OrbToggleRow("Курсив title", "Наклон для названия трека", settings.trackTitleItalic, Icons.Rounded.FormatItalic, c.accentMuted) {
+                                SettingsToggleRow("Курсив title", "Наклон для названия трека", settings.trackTitleItalic, Icons.Rounded.FormatItalic, c.accentMuted) {
                                     viewModel.updateSettings(settings.copy(trackTitleItalic = it))
                                 }
-                                OrbToggleRow("Title CAPS", "Все названия прописными", settings.uppercaseTitles, Icons.Rounded.TextFields, c.accent) {
+                                SettingsToggleRow("Title CAPS", "Все названия прописными", settings.uppercaseTitles, Icons.Rounded.TextFields, c.accent) {
                                     viewModel.updateSettings(settings.copy(uppercaseTitles = it))
                                 }
-                                OrbToggleRow("Meta CAPS", "Артист и альбом прописными", settings.trackMetaUppercase, Icons.Rounded.TextFields, c.accentVar) {
+                                SettingsToggleRow("Meta CAPS", "Артист и альбом прописными", settings.trackMetaUppercase, Icons.Rounded.TextFields, c.accentVar) {
                                     viewModel.updateSettings(settings.copy(trackMetaUppercase = it))
                                 }
-                                OrbToggleRow("Капсула meta", "Обрамление артиста и альбома", settings.trackMetaCapsule, Icons.Rounded.CropSquare, c.accentMuted) {
+                                SettingsToggleRow("Капсула meta", "Обрамление артиста и альбома", settings.trackMetaCapsule, Icons.Rounded.CropSquare, c.accentMuted) {
                                     viewModel.updateSettings(settings.copy(trackMetaCapsule = it))
                                 }
-                                OrbToggleRow("Показывать альбом", "Добавить альбом рядом с артистом", settings.showAlbumInList, Icons.Rounded.Album, c.accent) {
+                                SettingsToggleRow("Показывать альбом", "Добавить альбом рядом с артистом", settings.showAlbumInList, Icons.Rounded.Album, c.accent) {
                                     viewModel.updateSettings(settings.copy(showAlbumInList = it))
                                 }
-                                OrbToggleRow("Показывать длительность", "Таймкод справа в строке", settings.showDurationInList, Icons.Rounded.Timer, c.accentVar) {
+                                SettingsToggleRow("Показывать длительность", "Таймкод справа в строке", settings.showDurationInList, Icons.Rounded.Timer, c.accentVar) {
                                     viewModel.updateSettings(settings.copy(showDurationInList = it))
                                 }
-                                OrbToggleRow("Показывать номер", "Номер трека слева от обложки", settings.showTrackNumber, Icons.Rounded.Tag, c.accentMuted) {
+                                SettingsToggleRow("Показывать номер", "Номер трека слева от обложки", settings.showTrackNumber, Icons.Rounded.Tag, c.accentMuted) {
                                     viewModel.updateSettings(settings.copy(showTrackNumber = it))
                                 }
-                                OrbToggleRow("Тень текста", "Дополнительная глубина под title", settings.textShadowEnabled, Icons.Rounded.Flare, c.accent) {
+                                SettingsToggleRow("Тень текста", "Дополнительная глубина под title", settings.textShadowEnabled, Icons.Rounded.Flare, c.accent) {
                                     viewModel.updateSettings(settings.copy(textShadowEnabled = it))
                                 }
                                 if (settings.textShadowEnabled) {
@@ -3726,19 +3746,19 @@ fun TypographySettingsSection(viewModel: MusicViewModel) {
                             viewModel.updateSettings(settings.copy(trackMetaSpacingScale = it))
                         }
 
-                        OrbToggleRow("Жирные заголовки", "Усиленное начертание для треков", settings.boldTitles, Icons.Rounded.FormatBold, c.accent) {
+                        SettingsToggleRow("Жирные заголовки", "Усиленное начертание для треков", settings.boldTitles, Icons.Rounded.FormatBold, c.accent) {
                             viewModel.updateSettings(settings.copy(boldTitles = it))
                         }
-                        OrbToggleRow("ПРОПИСНЫЕ БУКВЫ", "Заглавные буквы в заголовках", settings.uppercaseTitles, Icons.Rounded.TextFormat, c.accentVar) {
+                        SettingsToggleRow("ПРОПИСНЫЕ БУКВЫ", "Заглавные буквы в заголовках", settings.uppercaseTitles, Icons.Rounded.TextFormat, c.accentVar) {
                             viewModel.updateSettings(settings.copy(uppercaseTitles = it))
                         }
-                        OrbToggleRow("Курсив заголовка", "Лёгкий наклон для названия трека", settings.trackTitleItalic, Icons.Rounded.FormatItalic, c.accentVar) {
+                        SettingsToggleRow("Курсив заголовка", "Лёгкий наклон для названия трека", settings.trackTitleItalic, Icons.Rounded.FormatItalic, c.accentVar) {
                             viewModel.updateSettings(settings.copy(trackTitleItalic = it))
                         }
-                        OrbToggleRow("ПРОПИСНЫЕ МЕТАДАННЫЕ", "Артист и альбом прописными", settings.trackMetaUppercase, Icons.Rounded.TextFormat, c.accentMuted) {
+                        SettingsToggleRow("ПРОПИСНЫЕ МЕТАДАННЫЕ", "Артист и альбом прописными", settings.trackMetaUppercase, Icons.Rounded.TextFormat, c.accentMuted) {
                             viewModel.updateSettings(settings.copy(trackMetaUppercase = it))
                         }
-                        OrbToggleRow("Тень текста", "Лёгкое свечение под текстом", settings.textShadowEnabled, Icons.Rounded.Flare, c.accentMuted) {
+                        SettingsToggleRow("Тень текста", "Лёгкое свечение под текстом", settings.textShadowEnabled, Icons.Rounded.Flare, c.accentMuted) {
                             viewModel.updateSettings(settings.copy(textShadowEnabled = it))
                         }
                         if (settings.textShadowEnabled) {
@@ -3832,17 +3852,17 @@ fun TypographySettingsSection(viewModel: MusicViewModel) {
                                 }
                             }
                         }
-                        OrbToggleRow("Капсула метаданных", "Артист и альбом в мягкой стеклянной капсуле", settings.trackMetaCapsule, Icons.Rounded.CropSquare, c.accentVar) {
+                        SettingsToggleRow("Капсула метаданных", "Артист и альбом в мягкой стеклянной капсуле", settings.trackMetaCapsule, Icons.Rounded.CropSquare, c.accentVar) {
                             viewModel.updateSettings(settings.copy(trackMetaCapsule = it))
                         }
                     }
 
                     // ──── Таб 3: Отображение ──────────────────────────────────
                     3 -> {
-                        OrbToggleRow("Подсветка текущего трека", "Акцентная подсветка активной строки", settings.glowOnNowPlaying, Icons.Rounded.Highlight, c.accent) {
+                        SettingsToggleRow("Подсветка текущего трека", "Акцентная подсветка активной строки", settings.glowOnNowPlaying, Icons.Rounded.Highlight, c.accent) {
                             viewModel.updateSettings(settings.copy(glowOnNowPlaying = it))
                         }
-                        OrbToggleRow("Две строки названия", "Длинные треки могут занимать 2 строки", settings.trackTitleTwoLines, Icons.Rounded.FormatAlignLeft, c.accentVar) {
+                        SettingsToggleRow("Две строки названия", "Длинные треки могут занимать 2 строки", settings.trackTitleTwoLines, Icons.Rounded.FormatAlignLeft, c.accentVar) {
                             viewModel.updateSettings(settings.copy(trackTitleTwoLines = it))
                         }
                         if (settings.glowOnNowPlaying) {
@@ -3850,16 +3870,16 @@ fun TypographySettingsSection(viewModel: MusicViewModel) {
                                 viewModel.updateSettings(settings.copy(nowPlayingGlowStrength = it))
                             }
                         }
-                        OrbToggleRow("Порядковый номер", "Показывать № трека в списке", settings.showTrackNumber, Icons.Rounded.Tag, c.accentVar) {
+                        SettingsToggleRow("Порядковый номер", "Показывать № трека в списке", settings.showTrackNumber, Icons.Rounded.Tag, c.accentVar) {
                             viewModel.updateSettings(settings.copy(showTrackNumber = it))
                         }
-                        OrbToggleRow("Длительность в списке", "Показывать время трека справа", settings.showDurationInList, Icons.Rounded.Timer, c.accentMuted) {
+                        SettingsToggleRow("Длительность в списке", "Показывать время трека справа", settings.showDurationInList, Icons.Rounded.Timer, c.accentMuted) {
                             viewModel.updateSettings(settings.copy(showDurationInList = it))
                         }
-                        OrbToggleRow("Битрейт в списке", "Показывать качество файла (kbps)", settings.showBitrateInList, Icons.Rounded.HighQuality, c.textSecondary) {
+                        SettingsToggleRow("Битрейт в списке", "Показывать качество файла (kbps)", settings.showBitrateInList, Icons.Rounded.HighQuality, c.textSecondary) {
                             viewModel.updateSettings(settings.copy(showBitrateInList = it))
                         }
-                        OrbToggleRow("Альбом в списке", "Показывать название альбома рядом с исполнителем", settings.showAlbumInList, Icons.Rounded.Album, c.accentVar) {
+                        SettingsToggleRow("Альбом в списке", "Показывать название альбома рядом с исполнителем", settings.showAlbumInList, Icons.Rounded.Album, c.accentVar) {
                             viewModel.updateSettings(settings.copy(showAlbumInList = it))
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
