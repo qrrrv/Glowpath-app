@@ -130,6 +130,7 @@ fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showTypographyStudio by remember { mutableStateOf(false) }
     var showFontPickerDialog by remember { mutableStateOf(false) }
+    var settingsQuery by rememberSaveable { mutableStateOf("") }
     val selectedBuiltInFont = remember(settings.selectedFontId) {
         AppFontList.firstOrNull { it.id == settings.selectedFontId } ?: DefaultAppFont
     }
@@ -181,12 +182,8 @@ fun SettingsScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 navigationIcon = {
-                    FilledTonalIconButton(
+                    IconButton(
                         onClick = onBack,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        ),
                         modifier = Modifier.padding(start = 8.dp)
                     ) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
@@ -196,17 +193,13 @@ fun SettingsScreen(
                     Text(
                         "Настройки",
                         fontFamily = LocalAppFontFamily.current,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 22.sp
                     )
                 },
                 actions = {
-                    FilledTonalIconButton(
+                    IconButton(
                         onClick = { showThemeDialog = true },
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ),
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Icon(Icons.Rounded.Palette, contentDescription = "Открыть темы")
@@ -223,18 +216,33 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            SettingsOverviewCard(
-                themeLabel = themeLabel,
-                fontLabel = fontLabel,
-                interfaceLabel = interfaceLabel,
-                onThemeClick = { showThemeDialog = true },
-                onTypographyClick = { showTypographyStudio = true },
-                onFontClick = openFontPicker
+            OutlinedTextField(
+                value = settingsQuery,
+                onValueChange = { settingsQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text("Поиск настроек", fontFamily = LocalAppFontFamily.current) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (settingsQuery.isNotEmpty()) {
+                        IconButton(onClick = { settingsQuery = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Очистить поиск")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                )
             )
 
             SettingsSectionBlock(
                 title = "Персонализация",
-                subtitle = "Тема, шрифт, типографика и верхняя панель"
+                subtitle = "Тема, шрифт, типографика и верхняя панель",
+                visible = settingsQuery.isBlank() || settingsQuery.containsAny("персонализация", "тема", "шрифт", "типографика", "панель", "внешний вид")
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Rounded.Palette,
@@ -271,7 +279,8 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Движение и атмосфера",
-                subtitle = "Анимации, переходы и фоновые эффекты"
+                subtitle = "Анимации, переходы и фоновые эффекты",
+                visible = settingsQuery.isBlank() || settingsQuery.containsAny("движение", "атмосфера", "анимации", "переходы", "орбы", "фон")
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Rounded.AutoAwesome,
@@ -300,7 +309,8 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Воспроизведение",
-                subtitle = "Поведение плеера, сортировка и звук"
+                subtitle = "Поведение плеера, сортировка и звук",
+                visible = settingsQuery.isBlank() || settingsQuery.containsAny("воспроизведение", "плеер", "сортировка", "звук", "перемешивание", "эквалайзер", "таймер")
             ) {
                 SettingsSwitchItem(
                     icon = Icons.Rounded.Shuffle,
@@ -367,7 +377,8 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Сервис и информация",
-                subtitle = "Статистика и сведения о приложении"
+                subtitle = "Статистика и сведения о приложении",
+                visible = settingsQuery.isBlank() || settingsQuery.containsAny("сервис", "информация", "статистика", "приложение", "сбросить")
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Rounded.BarChart,
@@ -601,22 +612,23 @@ private fun SettingsOverviewCard(
 private fun SettingsSectionBlock(
     title: String,
     subtitle: String,
+    visible: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    if (!visible) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(
             modifier = Modifier.padding(horizontal = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 text = title,
-                color = colors.onSurface,
+                color = colors.primary,
                 fontFamily = font,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
             )
             Text(
                 text = subtitle,
@@ -632,10 +644,7 @@ private fun SettingsSectionBlock(
 
 @Composable
 private fun SettingsGroupDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
-    )
+    Spacer(Modifier.height(2.dp))
 }
 
 @Composable
@@ -2635,21 +2644,11 @@ private fun SettingsQuickLinkCard(
 
 @Composable
 fun SettingsSection(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.56f)
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 4.dp),
-            content = content
-        )
-    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        content = content
+    )
 }
 
 @Composable
@@ -2658,15 +2657,15 @@ private fun SettingsLeadingIcon(
     tint: Color
 ) {
     Surface(
-        modifier = Modifier.size(40.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = tint.copy(alpha = 0.14f)
+        modifier = Modifier.size(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = tint.copy(alpha = 0.18f)
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -2677,15 +2676,15 @@ private fun SettingsLeadingIcon(
     tint: Color
 ) {
     Surface(
-        modifier = Modifier.size(40.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = tint.copy(alpha = 0.14f)
+        modifier = Modifier.size(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = tint.copy(alpha = 0.18f)
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Icon(iconPainter, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+            Icon(iconPainter, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -2744,10 +2743,9 @@ fun SettingsNavigationItem(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         headlineContent = {
             Text(title, color = colors.onSurface, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         },
@@ -2774,10 +2772,9 @@ fun SettingsNavigationItem(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         headlineContent = {
             Text(title, color = colors.onSurface, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         },
@@ -2809,10 +2806,9 @@ fun SettingsSwitchItem(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(enabled = enabled) { onCheckedChange(!checked) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         headlineContent = {
             Text(title, color = headlineColor, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         },
@@ -4604,3 +4600,6 @@ private fun TypoSlider(
         }
     }
 }
+
+private fun String.containsAny(vararg values: String): Boolean =
+    values.any { contains(it, ignoreCase = true) }
