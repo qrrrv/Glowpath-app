@@ -106,7 +106,16 @@ object LyricsUtils {
             val mm = line.time / 60000
             val ss = (line.time % 60000) / 1000
             val hh = (line.time % 1000) / 10
-            "[%02d:%02d.%02d]%s".format(mm, ss, hh, line.line)
+            val content = line.words
+                ?.takeIf { it.isNotEmpty() }
+                ?.joinToString(separator = "") { word ->
+                    val wordMm = word.time / 60000
+                    val wordSs = (word.time % 60000) / 1000
+                    val wordHh = (word.time % 1000) / 10
+                    "<%02d:%02d.%02d>%s".format(wordMm, wordSs, wordHh, word.word)
+                }
+                ?: line.line
+            "[%02d:%02d.%02d]%s".format(mm, ss, hh, content)
         }
     }
 }

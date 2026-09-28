@@ -23,6 +23,9 @@ object GeniusApiService {
     // В продакшене лучше хранить в BuildConfig
     private const val ACCESS_TOKEN = "your_genius_api_token_here"
 
+    val isConfigured: Boolean
+        get() = ACCESS_TOKEN.isNotBlank() && ACCESS_TOKEN != "your_genius_api_token_here"
+
     /**
      * Поиск песни на Genius
      * @return URL страницы с текстом или null
