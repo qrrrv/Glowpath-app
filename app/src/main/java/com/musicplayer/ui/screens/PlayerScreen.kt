@@ -225,7 +225,10 @@ fun PlayerScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(c.bgDeep.copy(alpha = playerBackgroundAlpha))
+                .background(
+                    c.surfaceColorAtElevation(NavigationBarDefaults.Elevation),
+                    alpha = playerBackgroundAlpha
+                )
         )
 
         AnimatedContent(
