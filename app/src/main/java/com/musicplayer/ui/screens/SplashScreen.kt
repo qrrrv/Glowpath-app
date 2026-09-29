@@ -8,9 +8,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -32,16 +30,6 @@ fun SplashScreen(
 ) {
     val c    = LocalAppColors.current
     val font = LocalAppFontFamily.current
-
-    val targetProgress = if (totalCount > 0)
-        (loadedCount.toFloat() / totalCount.toFloat()).coerceIn(0f, 1f)
-    else 0f
-
-    val animProgress by animateFloatAsState(
-        targetValue   = targetProgress,
-        animationSpec = tween(500, easing = FastOutSlowInEasing),
-        label         = "progress"
-    )
 
     val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.loading))
     val lottieProgress by animateLottieCompositionAsState(
@@ -67,12 +55,6 @@ fun SplashScreen(
         label = "haloAlpha"
     )
 
-    val glowAlpha by inf.animateFloat(
-        initialValue  = 0.25f,
-        targetValue   = 0.75f,
-        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "glow"
-    )
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -124,67 +106,6 @@ fun SplashScreen(
             )
 
             Spacer(Modifier.height(16.dp))
-
-            LoadBar(
-                progress  = animProgress,
-                glowAlpha = glowAlpha,
-                accent    = c.accent,
-                accentVar = c.accentVar,
-                bg        = c.bgCard.copy(0.5f),
-                modifier  = Modifier.fillMaxWidth().height(3.dp)
-            )
-
-            Spacer(Modifier.height(14.dp))
-
-            val pct = (animProgress * 100).toInt()
-            Text(
-                when {
-                    totalCount == 0 -> "Подготовка…"
-                    pct >= 100      -> "Готово"
-                    else            -> "$pct%"
-                },
-                color         = c.textDisabled,
-                fontFamily    = font,
-                fontSize      = 12.sp,
-                letterSpacing = 1.sp,
-                textAlign     = TextAlign.Center
-            )
-        }
-    }
-}
-
-@Composable
-private fun LoadBar(
-    progress: Float,
-    glowAlpha: Float,
-    accent: Color,
-    accentVar: Color,
-    bg: Color,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        val w     = size.width
-        val h     = size.height
-        val r     = h / 2f
-        val fillW = (w * progress).coerceAtLeast(0f)
-
-        drawRoundRect(color = bg, size = Size(w, h), cornerRadius = CornerRadius(r, r))
-
-        if (fillW > 0f) {
-            drawRoundRect(
-                brush = Brush.horizontalGradient(listOf(accent.copy(alpha = 0.6f), accentVar), startX = 0f, endX = fillW),
-                size         = Size(fillW, h),
-                cornerRadius = CornerRadius(r, r)
-            )
-            val tipX  = fillW
-            val tipCy = h / 2f
-            val glowR = h * 5f
-            drawCircle(
-                brush = Brush.radialGradient(listOf(accentVar.copy(alpha = glowAlpha * 0.55f), Color.Transparent), center = Offset(tipX, tipCy), radius = glowR),
-                radius = glowR, center = Offset(tipX, tipCy)
-            )
-            drawCircle(color = accentVar, radius = h * 2.4f, center = Offset(tipX, tipCy))
-            drawCircle(color = Color.White.copy(alpha = 0.9f), radius = h * 1f, center = Offset(tipX, tipCy))
         }
     }
 }

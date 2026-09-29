@@ -46,18 +46,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeveloperMode
-import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Send
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -83,7 +78,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -96,14 +90,11 @@ import com.musicplayer.R
 import com.musicplayer.ui.theme.LocalAppFontFamily
 
 private data class AboutDetail(val icon: ImageVector, val label: String, val value: String)
-private data class CommunityMember(val name: String, val role: String, val github: String)
-private data class AboutAction(val icon: ImageVector, val title: String, val description: String, val url: String? = null)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val haptics = LocalHapticFeedback.current
     val font = LocalAppFontFamily.current
     val listState = rememberLazyListState()
     val topBarState = rememberTopAppBarState()
@@ -120,26 +111,6 @@ fun AboutScreen(onBack: () -> Unit) {
         AboutDetail(Icons.Rounded.Memory, "Архитектура", Build.SUPPORTED_ABIS.take(2).joinToString(", ").ifBlank { "ARM64 & ARM32" })
     )
 
-    val maintainers = listOf(
-        CommunityMember("Izzy", "Manages updates on IzzyOnDroid", "IzzySoft"),
-        CommunityMember("linsui", "Manages updates on F-Droid", "linsui"),
-        CommunityMember("Licaon_Kter", "Manages updates on F-Droid", "licaon-kter")
-    )
-    val collaborators = listOf(
-        CommunityMember("theovilardo", "Guide & PixelPlayer's Lead Dev", "theovilardo"),
-        CommunityMember("Nick", "Guide & Gramophone's Maintainer", "nift4"),
-        CommunityMember("vivi", "Guide & Vivi Music's Lead Dev", "vivizzz007"),
-        CommunityMember("Alex", "Lyrically API's Lead Dev", "Paxsenix0")
-    )
-    val designTesting = listOf(CommunityMember("itzKane", "UI Concept Designer", "soykane"))
-    val actions = listOf(
-        AboutAction(Icons.Rounded.Download, "Check for Updates", "Check for the latest version", "https://github.com/qrrrv/Glowpath-app/releases"),
-        AboutAction(Icons.Rounded.BugReport, "Report Bug or Suggest Feature", "github.com/qrrrv/Glowpath-app/issues", "https://github.com/qrrrv/Glowpath-app/issues"),
-        AboutAction(Icons.Rounded.Settings, "Open Source Libraries", "View Dependencies", "https://github.com/qrrrv/Glowpath-app/network/dependents"),
-        AboutAction(Icons.Rounded.Chat, "Discord Community", "discord.gg/XjPyUYPQYc", "https://discord.gg/XjPyUYPQYc"),
-        AboutAction(Icons.Rounded.Send, "Telegram Support", "t.me/RhythmSupport", "https://t.me/RhythmSupport"),
-        AboutAction(Icons.Rounded.RestartAlt, "Replay Welcome Tour", "Show the introduction again")
-    )
 
     fun openUrl(url: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
@@ -174,7 +145,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Image(
-                                painter = painterResource(R.mipmap.ic_launcher),
+                                painter = painterResource(R.drawable.glowpath_app_icon),
                                 contentDescription = "Иконка Glowpath",
                                 modifier = Modifier
                                     .size(82.dp)
@@ -196,10 +167,10 @@ fun AboutScreen(onBack: () -> Unit) {
                     onOpen = ::openUrl, website = "https://rhythmweb.vercel.app/", support = "https://ko-fi.com/anjishnunandi"
                 )
             }
-            item { CommunityGroup("Package Maintainers", maintainers, ::openUrl) }
-            item { CommunityGroup("Collaborators & Contributors", collaborators, ::openUrl) }
-            item { CommunityGroup("Design & Testing", designTesting, ::openUrl) }
-            item { ActionGroup("Actions", actions, ::openUrl) }
+            item { CommunityGroup("Package Maintainers", aboutMaintainers, ::openUrl) }
+            item { CommunityGroup("Collaborators & Contributors", aboutCollaborators, ::openUrl) }
+            item { CommunityGroup("Design & Testing", aboutDesignTesting, ::openUrl) }
+            item { ActionGroup("Actions", aboutActions, ::openUrl) }
             item {
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     Text("Rhythm-inspired Material 3 design", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
