@@ -48,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,7 +59,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.musicplayer.BuildConfig
 import com.musicplayer.R
 import com.musicplayer.ui.theme.LocalAppFontFamily
 
@@ -73,8 +73,9 @@ private data class AboutDetail(
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val font = LocalAppFontFamily.current
-    val version = BuildConfig.VERSION_NAME
-    val build = BuildConfig.VERSION_CODE.toString()
+    val packageInfo = rememberPackageInfo(context)
+    val version = packageInfo.first
+    val build = packageInfo.second
     val details = listOf(
         AboutDetail(Icons.Rounded.Info, "Версия", version),
         AboutDetail(Icons.Rounded.Build, "Сборка", build),
@@ -199,5 +200,23 @@ fun AboutScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun rememberPackageInfo(context: Context): Pair<String, String> {
+    return remember(context) {
+        runCatching {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            val versionName = info.versionName ?: "неизвестно"
+            val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.longVersionCode.toString()
+            } else {
+                @Suppress("DEPRECATION")
+                info.versionCode.toString()
+            }
+            versionName to versionCode
+        }.getOrDefault("неизвестно" to "неизвестно")
     }
 }
