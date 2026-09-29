@@ -111,7 +111,6 @@ data class PlayerSettings(
     val lyricsAlignment: Int      = 0,   // 0=left, 1=center, 2=right
     val lyricsCurlAnim: Boolean   = true,
     val useWavySeekBar: Boolean   = true,
-    val showRandomOnlineAlbumsShelf: Boolean = false,
 
     // ── Типографика ───────────────────────────────────────────────────────────
     val playerTitleSize: Float    = 22f,     // размер заголовка трека в плеере (sp)

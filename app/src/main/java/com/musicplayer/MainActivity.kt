@@ -417,10 +417,6 @@ fun MusicPlayerApp(
                 onlineSearchViewModel = onlineSearchViewModel,
                 onSongClick = { song -> handleSongTap { viewModel.playSong(song) } },
                 onAlbumSongClick = { song -> handleSongTap { viewModel.playFromActiveQueue(song) } },
-                onOnlineAlbumClick = { album ->
-                    onlineSearchViewModel.openAlbum(album)
-                    openRootTab("online_search")
-                },
                 onSettingsClick = { navController.navigate("settings") },
                 modifier = Modifier.fillMaxSize()
             )
@@ -445,10 +441,6 @@ fun MusicPlayerApp(
                     onlineSearchViewModel = onlineSearchViewModel,
                     onSongClick = { song -> handleSongTap { viewModel.playSong(song) } },
                     onAlbumSongClick = { song -> handleSongTap { viewModel.playFromActiveQueue(song) } },
-                    onOnlineAlbumClick = { album ->
-                        onlineSearchViewModel.openAlbum(album)
-                        openRootTab("online_search")
-                    },
                     onSettingsClick = { navController.navigate("settings") },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -662,7 +654,6 @@ private fun RootTabsPager(
     onlineSearchViewModel: OnlineSearchViewModel,
     onSongClick: (Song) -> Unit,
     onAlbumSongClick: (Song) -> Unit,
-    onOnlineAlbumClick: (com.musicplayer.data.OnlineAlbumSummary) -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -685,7 +676,6 @@ private fun RootTabsPager(
                     viewModel = viewModel,
                     onSongClick = onSongClick,
                     onSettingsClick = onSettingsClick,
-                    onOnlineAlbumClick = onOnlineAlbumClick
                 )
 
                 "albums" -> AlbumsScreen(

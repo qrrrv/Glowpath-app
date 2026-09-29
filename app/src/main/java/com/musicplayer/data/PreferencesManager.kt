@@ -82,7 +82,6 @@ class PreferencesManager(context: Context) {
             putInt("lyrics_alignment",       settings.lyricsAlignment)
             putBoolean("lyrics_curl_anim",   settings.lyricsCurlAnim)
             putBoolean("use_wavy_seekbar",   settings.useWavySeekBar)
-            putBoolean("show_random_online_albums_shelf", settings.showRandomOnlineAlbumsShelf)
             // Типографика
             putFloat("player_title_size",     settings.playerTitleSize)
             putFloat("player_artist_size",    settings.playerArtistSize)
@@ -198,7 +197,6 @@ class PreferencesManager(context: Context) {
             lyricsAlignment   = prefs.getInt("lyrics_alignment",  0),
             lyricsCurlAnim    = prefs.getBoolean("lyrics_curl_anim", true),
             useWavySeekBar    = prefs.getBoolean("use_wavy_seekbar", true),
-            showRandomOnlineAlbumsShelf = prefs.getBoolean("show_random_online_albums_shelf", false),
             // Типографика
             playerTitleSize     = prefs.getFloat("player_title_size",     22f),
             playerArtistSize    = prefs.getFloat("player_artist_size",    15f),

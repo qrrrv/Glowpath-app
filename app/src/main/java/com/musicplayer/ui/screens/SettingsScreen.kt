@@ -244,8 +244,7 @@ fun SettingsScreen(
                     onStats = onStatsClick,
                     onAbout = openAbout,
                     onShuffle = { viewModel.updateSettings(settings.copy(shuffleEnabled = !settings.shuffleEnabled)) },
-                    onWavySeekBar = { viewModel.updateSettings(settings.copy(useWavySeekBar = !settings.useWavySeekBar)) },
-                    onRandomAlbums = { viewModel.updateSettings(settings.copy(showRandomOnlineAlbumsShelf = !settings.showRandomOnlineAlbumsShelf)) }
+                    onWavySeekBar = { viewModel.updateSettings(settings.copy(useWavySeekBar = !settings.useWavySeekBar)) }
                 )
             }
 
@@ -337,21 +336,6 @@ fun SettingsScreen(
                     checked = settings.useWavySeekBar,
                     onCheckedChange = {
                         viewModel.updateSettings(settings.copy(useWavySeekBar = it))
-                    }
-                )
-                SettingsGroupDivider()
-                SettingsSwitchItem(
-                    icon = Icons.Rounded.Album,
-                    iconBg = MaterialTheme.colorScheme.tertiary,
-                    title = "Случайные онлайн-альбомы",
-                    subtitle = if (settings.showRandomOnlineAlbumsShelf) {
-                        "На главном экране показывается новая витрина альбомов при каждом запуске"
-                    } else {
-                        "Вместо «Недавно добавленные» можно показывать случайные альбомы с сайта"
-                    },
-                    checked = settings.showRandomOnlineAlbumsShelf,
-                    onCheckedChange = {
-                        viewModel.updateSettings(settings.copy(showRandomOnlineAlbumsShelf = it))
                     }
                 )
                 SettingsGroupDivider()
@@ -644,8 +628,7 @@ private fun SettingsSearchResults(
     onStats: () -> Unit,
     onAbout: () -> Unit,
     onShuffle: () -> Unit,
-    onWavySeekBar: () -> Unit,
-    onRandomAlbums: () -> Unit
+    onWavySeekBar: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val entries = listOf(
@@ -659,7 +642,6 @@ private fun SettingsSearchResults(
         Triple("Эквалайзер", "Пресеты и настройка звучания", Icons.Rounded.GraphicEq) to onEqualizer,
         Triple("Перемешивание", "Случайный порядок треков", Icons.Rounded.Shuffle) to onShuffle,
         Triple("Волнистый ползунок", "Анимированный seek bar в плеере", Icons.Rounded.ShowChart) to onWavySeekBar,
-        Triple("Случайные онлайн-альбомы", "Витрина альбомов на главном экране", Icons.Rounded.Album) to onRandomAlbums,
         Triple("Статистика", "История прослушивания", Icons.Rounded.BarChart) to onStats,
         Triple("О приложении", "Glowpath и версия приложения", Icons.Rounded.Info) to onAbout
     )
