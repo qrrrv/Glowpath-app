@@ -12,10 +12,26 @@ android {
         applicationId = "com.musicplayer"
         minSdk = 26 // Как ты просил изначально
         targetSdk = 36
-        versionCode = 7
+        versionCode = 8
         versionName = "1.0-http"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    val stableKeystorePath = System.getenv("GLOWPATH_KEYSTORE_PATH").orEmpty()
+    val stableKeystorePassword = System.getenv("GLOWPATH_KEYSTORE_PASSWORD").orEmpty()
+    val stableKeyAlias = System.getenv("GLOWPATH_KEY_ALIAS").orEmpty()
+    val stableKeyPassword = System.getenv("GLOWPATH_KEY_PASSWORD").orEmpty()
+
+    signingConfigs {
+        if (stableKeystorePath.isNotBlank()) {
+            create("glowpathStable") {
+                storeFile = file(stableKeystorePath)
+                storePassword = stableKeystorePassword
+                keyAlias = stableKeyAlias
+                keyPassword = stableKeyPassword
+            }
+        }
     }
 
     buildFeatures {
@@ -45,6 +61,9 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            if (stableKeystorePath.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("glowpathStable")
+            }
         }
     }
 }
