@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BugReport
@@ -172,7 +173,13 @@ fun AboutScreen(onBack: () -> Unit) {
                 AnimatedVisibility(visible = visible, enter = fadeIn() + scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                            Icon(Icons.Rounded.MusicNote, contentDescription = "Glowpath", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(82.dp))
+                            Image(
+                                painter = painterResource(R.mipmap.ic_launcher),
+                                contentDescription = "Иконка Glowpath",
+                                modifier = Modifier
+                                    .size(82.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                            )
                             Spacer(Modifier.width(2.dp))
                             Text("Glowpath", style = MaterialTheme.typography.displaySmall, fontFamily = font, fontWeight = FontWeight.Bold)
                         }
@@ -244,11 +251,19 @@ private fun DeveloperCard(name: String, github: String, avatar: String, website:
     Column(Modifier.fillMaxWidth()) {
         Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 8.dp, bottomEnd = 8.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(avatar).crossfade(true).build(), contentDescription = name, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(30.dp)), placeholder = painterResource(R.drawable.ic_music_placeholder), error = painterResource(R.drawable.ic_music_placeholder))
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(avatar).crossfade(true).build(),
+                    contentDescription = name,
+                    modifier = Modifier
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(34.dp)),
+                    placeholder = painterResource(R.drawable.ic_music_placeholder),
+                    error = painterResource(R.drawable.ic_music_placeholder)
+                )
                 Spacer(Modifier.height(16.dp))
                 Text(name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(18.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ExpressiveButton(Icons.Rounded.Language, "Visit Website", Modifier.weight(1f)) { onOpen(website) }
                     ExpressiveButton(Icons.Rounded.Code, "View GitHub", Modifier.weight(1f)) { onOpen("https://github.com/$github") }
                 }
@@ -272,8 +287,32 @@ private fun ExpressiveButton(icon: ImageVector, text: String, modifier: Modifier
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) .97f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "about_button_scale")
-    Button(onClick = onClick, modifier = modifier.animateContentSize().graphicsLayerCompat(scale), interactionSource = interaction, shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer), contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp)) {
-        Icon(icon, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+    Surface(
+        modifier = modifier
+            .height(48.dp)
+            .graphicsLayerCompat(scale)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick
+            ),
+        shape = if (text.startsWith("Visit")) {
+            RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 8.dp, bottomEnd = 8.dp)
+        } else {
+            RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 20.dp, bottomEnd = 20.dp)
+        },
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.width(8.dp))
+            Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -292,7 +331,7 @@ private fun CommunityRow(member: CommunityMember, onOpen: (String) -> Unit, firs
     val context = LocalContext.current
     val avatar = "https://github.com/${member.github}.png"
     Card(modifier = Modifier.fillMaxWidth().clickable { onOpen("https://github.com/${member.github}") }, shape = when { first && last -> RoundedCornerShape(24.dp); first -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 6.dp, bottomEnd = 6.dp); last -> RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 24.dp, bottomEnd = 24.dp); else -> RoundedCornerShape(6.dp) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 21.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(model = ImageRequest.Builder(context).data(avatar).crossfade(true).build(), contentDescription = member.name, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)), placeholder = painterResource(R.drawable.ic_music_placeholder), error = painterResource(R.drawable.ic_music_placeholder))
             Column(Modifier.weight(1f).padding(horizontal = 14.dp)) { Text(member.name, fontWeight = FontWeight.Bold); Text(member.role, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 24.sp)
