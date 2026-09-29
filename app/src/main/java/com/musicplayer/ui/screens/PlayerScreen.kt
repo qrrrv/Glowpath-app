@@ -51,6 +51,7 @@ import coil.size.Size as CoilSize
 import com.musicplayer.R
 import com.musicplayer.MiniPlayer
 import com.musicplayer.data.RepeatMode
+import com.musicplayer.data.SongColorCache
 import com.musicplayer.data.toTimeString
 import com.musicplayer.ui.components.*
 import com.musicplayer.ui.components.instrumentIconRes
@@ -98,6 +99,27 @@ fun PlayerScreen(
 
     val isFavourite = song!!.id in favourites
     val customArtUri: android.net.Uri? = customArtMap[song!!.id]
+    val artworkUri = customArtUri ?: song!!.albumArtUri
+
+    // Match OuterTune's player background: derive a color from the current cover
+    // and crossfade to the next cover instead of changing the background abruptly.
+    var artworkColor by remember(artworkUri) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(artworkUri) {
+        artworkColor = artworkUri?.let { SongColorCache.getColor(context, it) }
+    }
+    val targetArtworkColor = artworkColor ?: c.bgDeep
+    val animatedArtworkColor by animateColorAsState(
+        targetValue = targetArtworkColor,
+        animationSpec = tween(1000, easing = FastOutSlowInEasing),
+        label = "playerArtworkBackground"
+    )
+    val playerBackdrop = Brush.verticalGradient(
+        colors = listOf(
+            androidx.compose.ui.graphics.lerp(c.bgDeep, animatedArtworkColor, 0.52f),
+            androidx.compose.ui.graphics.lerp(c.bgDeep, animatedArtworkColor, 0.18f),
+            c.bgDeep
+        )
+    )
     // ── Page-flip animation ───────────────────────────────────────────────────
     var flipDirection by remember { mutableIntStateOf(0) }
     val flipRotY = remember { Animatable(0f) }
@@ -211,12 +233,16 @@ fun PlayerScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(c.bgDeep.copy(alpha = playerBackgroundAlpha)))
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(playerBackdrop, alpha = playerBackgroundAlpha)
+        )
 
         PlayerCollapseBackdrop(
             title = song!!.title,
             artist = if (song!!.artist != "<unknown>") song!!.artist else "Неизвестный",
-            albumArtUri = customArtUri ?: song!!.albumArtUri,
+            albumArtUri = artworkUri,
             isPlaying = isPlaying,
             progress = if (duration > 0L) currentPosition.toFloat() / duration.toFloat() else 0f,
             revealProgress = collapseBackdropReveal,
