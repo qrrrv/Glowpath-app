@@ -191,7 +191,7 @@ fun CoverSwipeCarousel(
 
                     if (commit) {
                         val forward = projected < 0f
-                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         motion.commitSwipe(
                             scope = scope,
                             forward = forward,
