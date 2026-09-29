@@ -590,6 +590,7 @@ private fun AlbumArtSection(
     val travel = remember { Animatable(0f) }
     val tilt = remember { Animatable(0f) }
     var dragTravel by remember { mutableStateOf<Float?>(null) }
+    var dragTilt by remember { mutableFloatStateOf(0f) }
     var swiping by remember { mutableStateOf(false) }
     val gap = with(density) { 24.dp.toPx() }
     val follow = 0.92f
@@ -603,6 +604,7 @@ private fun AlbumArtSection(
         travel.snapTo(0f)
         tilt.snapTo(0f)
         dragTravel = null
+        dragTilt = 0f
         swiping = false
     }
     Box(contentAlignment = Alignment.BottomEnd) {
@@ -631,7 +633,7 @@ private fun AlbumArtSection(
                                 dx = change.position.x - down.position.x
                                 val blocked = (dx > 0f && previousArtUri == null) || (dx < 0f && nextArtUri == null)
                                 dragTravel = if (blocked) dx * blockedFollow else dx * follow
-                                tilt.snapTo(if (width > 0f) (dragTravel ?: 0f) / width * tiltDegrees else 0f)
+                                dragTilt = if (width > 0f) (dragTravel ?: 0f) / width * tiltDegrees else 0f
                                 change.consume()
                                 if (change.changedToUpIgnoreConsumed()) break
                             }
@@ -642,17 +644,22 @@ private fun AlbumArtSection(
                                 committed = true
                                 val shown = dragTravel ?: 0f
                                 dragTravel = null
-                                scope.launch { tilt.animateTo(0f, tween(180)) }
-                                travel.snapTo(shown)
-                                travel.animateTo(if (forward) -(width + gap) else width + gap, tween(180))
-                                if (forward) onSwipeNext() else onSwipePrev()
+                                dragTilt = 0f
+                                scope.launch {
+                                    tilt.animateTo(0f, tween(180))
+                                    travel.snapTo(shown)
+                                    travel.animateTo(if (forward) -(width + gap) else width + gap, tween(180))
+                                    if (forward) onSwipeNext() else onSwipePrev()
+                                }
                             } else {
                                 dragTravel = null
+                                dragTilt = 0f
                                 scope.launch { travel.animateTo(0f, settleSpec); tilt.animateTo(0f, settleSpec) }
                             }
                         } finally {
                             if (!committed) {
                                 dragTravel = null
+                                dragTilt = 0f
                                 scope.launch { tilt.animateTo(0f, settleSpec) }
                             }
                             swiping = false
@@ -671,7 +678,7 @@ private fun AlbumArtSection(
             Box(Modifier.fillMaxSize()
                 .graphicsLayer {
                     translationX = 0f
-                    rotationZ = if (swiping) (dragTravel ?: travel.value) / size.width.coerceAtLeast(1f) * tiltDegrees else 0f
+                    rotationZ = if (swiping) dragTilt else tilt.value
                 }
                 .clip(artShape)
                 .background(c.bgCard)
