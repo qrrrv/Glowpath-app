@@ -156,9 +156,9 @@ fun PlayerScreen(
         openProgress.snapTo(0f)
         openProgress.animateTo(
             targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = 430,
-                easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+            animationSpec = spring(
+                dampingRatio = 0.9f,
+                stiffness = 300f
             )
         )
     }
@@ -166,9 +166,9 @@ fun PlayerScreen(
         screenEntryProgress.snapTo(0f)
         screenEntryProgress.animateTo(
             targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = 430,
-                easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+            animationSpec = spring(
+                dampingRatio = 0.9f,
+                stiffness = 300f
             )
         )
     }
