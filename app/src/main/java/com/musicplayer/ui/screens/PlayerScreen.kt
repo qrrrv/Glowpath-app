@@ -13,6 +13,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -100,6 +102,10 @@ fun PlayerScreen(
     val isFavourite = song!!.id in favourites
     val customArtUri: android.net.Uri? = customArtMap[song!!.id]
     val artworkUri = customArtUri ?: song!!.albumArtUri
+    val previousSong = viewModel.playerNeighbour(forward = false)
+    val nextSong = viewModel.playerNeighbour(forward = true)
+    val previousArtUri = previousSong?.let { customArtMap[it.id] ?: it.albumArtUri }
+    val nextArtUri = nextSong?.let { customArtMap[it.id] ?: it.albumArtUri }
 
     // Match OuterTune's player background: keep the previous gradient visible
     // while the next artwork is decoded, then crossfade the complete gradient.
@@ -306,9 +312,9 @@ fun PlayerScreen(
             val requestClose: () -> Unit = { scope.launch { animateCloseAndExit() } }
 
             if (isLandscape) {
-                LandscapePlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, flipRotY.value, artSlideX.value, viewModel, customArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
+                LandscapePlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, flipRotY.value, artSlideX.value, viewModel, customArtUri, previousArtUri, nextArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
             } else {
-                PortraitPlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, flipRotY.value, artSlideX.value, viewModel, customArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
+                PortraitPlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, flipRotY.value, artSlideX.value, viewModel, customArtUri, previousArtUri, nextArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
             }
         }
 
@@ -381,7 +387,7 @@ private fun PlayerCollapseBackdrop(
 private fun PortraitPlayerContent(
     song: com.musicplayer.data.Song, isPlaying: Boolean, currentPosition: Long, duration: Long,
     settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float, flipRotY: Float, artSlideX: Float = 0f,
-    viewModel: MusicViewModel, customArtUri: android.net.Uri?,
+    viewModel: MusicViewModel, customArtUri: android.net.Uri?, previousArtUri: android.net.Uri?, nextArtUri: android.net.Uri?,
     onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit,
     onSwipeNext: () -> Unit, onSwipePrev: () -> Unit, swipeProgress: Float = 0f, openProgress: Float = 1f
 ) {
@@ -398,7 +404,7 @@ private fun PortraitPlayerContent(
             TopBar(onBack, onLyricsClick, onSettingsClick, swipeProgress)
         }
         Spacer(Modifier.height(20.dp))
-        AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
+        AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, previousArtUri, nextArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
         Spacer(Modifier.height(24.dp))
         Column(Modifier.graphicsLayer {
             alpha = contentReveal
@@ -423,7 +429,7 @@ private fun PortraitPlayerContent(
 private fun LandscapePlayerContent(
     song: com.musicplayer.data.Song, isPlaying: Boolean, currentPosition: Long, duration: Long,
     settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float, flipRotY: Float, artSlideX: Float = 0f,
-    viewModel: MusicViewModel, customArtUri: android.net.Uri?,
+    viewModel: MusicViewModel, customArtUri: android.net.Uri?, previousArtUri: android.net.Uri?, nextArtUri: android.net.Uri?,
     onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit,
     onSwipeNext: () -> Unit, onSwipePrev: () -> Unit, swipeProgress: Float = 0f, openProgress: Float = 1f
 ) {
@@ -439,7 +445,7 @@ private fun LandscapePlayerContent(
                 TopBar(onBack, onLyricsClick, onSettingsClick, swipeProgress)
             }
             Spacer(Modifier.height(8.dp))
-            AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
+            AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, previousArtUri, nextArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f).fillMaxHeight().graphicsLayer {
@@ -570,103 +576,135 @@ private fun AnimatedBackButton(
 @Composable
 private fun AlbumArtSection(
     song: com.musicplayer.data.Song, isPlaying: Boolean, artScale: Float, flipRotY: Float, artSlideX: Float = 0f,
-    customArtUri: android.net.Uri?,
-    onSwipeNext: () -> Unit, onSwipePrev: () -> Unit,
-    onResetArt: () -> Unit,
-    albumArtAnim: Int = 0,
-    animParams: com.musicplayer.data.AnimParams = com.musicplayer.data.AnimParams(),
+    customArtUri: android.net.Uri?, previousArtUri: android.net.Uri?, nextArtUri: android.net.Uri?,
+    onSwipeNext: () -> Unit, onSwipePrev: () -> Unit, onResetArt: () -> Unit,
+    albumArtAnim: Int = 0, animParams: com.musicplayer.data.AnimParams = com.musicplayer.data.AnimParams(),
     openProgress: Float = 1f
 ) {
     val c = MaterialTheme.colorScheme
     val appStyle = com.musicplayer.ui.theme.LocalAppStyle.current
     val artCorner = androidx.compose.ui.unit.Dp(appStyle.cardCornerRadius.coerceIn(8f, 64f))
-    val artShape  = RoundedCornerShape(artCorner)
-    var swipeDragX by remember { mutableFloatStateOf(0f) }
-    val density = LocalDensity.current.density
-    // The artwork is intentionally static in the full-screen player. Navigation
-    // still supports horizontal swipe and page-flip, but playback no longer causes
-    // continuous scale/rotation/vertical translation recompositions.
+    val artShape = RoundedCornerShape(artCorner)
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val travel = remember { Animatable(0f) }
+    val tilt = remember { Animatable(0f) }
+    var dragTravel by remember { mutableStateOf<Float?>(null) }
+    var swiping by remember { mutableStateOf(false) }
+    val gap = with(density) { 24.dp.toPx() }
+    val follow = 0.92f
+    val blockedFollow = 0.3f
+    val commitFraction = 0.3f
+    val tiltDegrees = 6f
+    val currentArt = customArtUri ?: song.albumArtUri
+    val settleSpec = spring<Float>(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow)
 
+    LaunchedEffect(song.id) {
+        travel.snapTo(0f)
+        tilt.snapTo(0f)
+        dragTravel = null
+        swiping = false
+    }
     Box(contentAlignment = Alignment.BottomEnd) {
         Box(
             modifier = Modifier
                 .size(280.dp * artScale)
                 .graphicsLayer {
-                    rotationY = flipRotY + swipeDragX * 0.08f
-                    translationX = artSlideX * size.width * 0.6f
+                    translationX = (dragTravel ?: travel.value) + artSlideX * size.width * 0.6f
+                    rotationY = flipRotY
                     translationY = 0f
                     alpha = 1f
                     scaleX = artScale
                     scaleY = artScale
-                    cameraDistance = 12f * density
+                    cameraDistance = 12f * density.density
                 }
-                .pointerInput(Unit) {
-                    val pointerScope = this
-                    while (true) {
-                        var dragX = 0f
-                        coroutineScope {
-                            pointerScope.awaitPointerEventScope {
-                                awaitFirstDown()
-                                try {
-                                    while (true) {
-                                        val ev = awaitPointerEvent()
-                                        val ch = ev.changes.firstOrNull() ?: break
-                                        val dx = ch.position.x - ch.previousPosition.x
-                                        dragX += dx
-                                        swipeDragX = dragX.coerceIn(-160f, 160f)
-                                        ch.consume()
-                                        if (!ch.pressed) {
-                                            if (dragX < -80f) onSwipeNext()
-                                            else if (dragX > 80f) onSwipePrev()
-                                            swipeDragX = 0f
-                                            break
-                                        }
-                                    }
-                                } finally { swipeDragX = 0f }
+                .pointerInput(song.id, previousArtUri, nextArtUri) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val width = size.width.toFloat()
+                        var dx = 0f
+                        var committed = false
+                        swiping = true
+                        try {
+                            while (true) {
+                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                dx = change.position.x - down.position.x
+                                val blocked = (dx > 0f && previousArtUri == null) || (dx < 0f && nextArtUri == null)
+                                dragTravel = if (blocked) dx * blockedFollow else dx * follow
+                                tilt.snapTo(if (width > 0f) (dragTravel ?: 0f) / width * tiltDegrees else 0f)
+                                change.consume()
+                                if (change.changedToUpIgnoreConsumed()) break
                             }
+                            val blocked = (dx > 0f && previousArtUri == null) || (dx < 0f && nextArtUri == null)
+                            val armed = !blocked && width > 0f && kotlin.math.abs(dx) > width * commitFraction
+                            val forward = dx < 0f
+                            if (armed) {
+                                committed = true
+                                val shown = dragTravel ?: 0f
+                                dragTravel = null
+                                scope.launch { tilt.animateTo(0f, tween(180)) }
+                                travel.snapTo(shown)
+                                travel.animateTo(if (forward) -(width + gap) else width + gap, tween(180))
+                                if (forward) onSwipeNext() else onSwipePrev()
+                            } else {
+                                dragTravel = null
+                                scope.launch { travel.animateTo(0f, settleSpec); tilt.animateTo(0f, settleSpec) }
+                            }
+                        } finally {
+                            if (!committed) {
+                                dragTravel = null
+                                scope.launch { tilt.animateTo(0f, settleSpec) }
+                            }
+                            swiping = false
                         }
                     }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            val shownTravel = dragTravel ?: travel.value
+            if (previousArtUri != null) {
+                SwipeGhostCover(previousArtUri, forward = false, gap = gap, travel = shownTravel, width = 280.dp, shape = artShape)
+            }
+            if (nextArtUri != null) {
+                SwipeGhostCover(nextArtUri, forward = true, gap = gap, travel = shownTravel, width = 280.dp, shape = artShape)
+            }
+            Box(Modifier.fillMaxSize()
+                .graphicsLayer {
+                    translationX = 0f
+                    rotationZ = if (swiping) (dragTravel ?: travel.value) / size.width.coerceAtLeast(1f) * tiltDegrees else 0f
                 }
                 .clip(artShape)
                 .background(c.bgCard)
-                .border(1.5.dp, c.accentMuted.copy(0.3f), artShape),
-            contentAlignment = Alignment.Center
-        ) {
-            when {
-                customArtUri != null -> OptimizedAlbumArt(
-                    uri = customArtUri,
-                    title = song.title,
-                    modifier = Modifier.fillMaxSize(),
-                    targetSize = CoilSize(640, 640)
-                )
-                song.albumArtUri != null -> OptimizedAlbumArt(
-                    uri = song.albumArtUri,
-                    title = song.title,
-                    modifier = Modifier.fillMaxSize(),
-                    targetSize = CoilSize(640, 640)
-                )
-                else -> Icon(painterResource(instrumentIconRes(song.id)), null, tint = c.accentMuted, modifier = Modifier.size(80.dp))
-            }
-
-            if (swipeDragX.absoluteValue > 20f) {
-                val alpha = ((swipeDragX.absoluteValue - 20f) / 80f).coerceIn(0f, 0.7f)
-                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
-                    if (swipeDragX > 0) listOf(c.accent.copy(alpha), Color.Transparent)
-                    else listOf(Color.Transparent, c.accent.copy(alpha))
-                )))
+                .border(1.5.dp, c.accentMuted.copy(0.3f), artShape)
+            ) {
+                when {
+                    currentArt != null -> OptimizedAlbumArt(uri = currentArt, title = song.title, modifier = Modifier.fillMaxSize(), targetSize = CoilSize(640, 640))
+                    else -> Icon(painterResource(instrumentIconRes(song.id)), null, tint = c.accentMuted, modifier = Modifier.size(80.dp))
+                }
             }
         }
-
-        // Show small "reset" button if custom art is set
         if (customArtUri != null) {
-            Box(
-                Modifier.padding(8.dp).size(28.dp).clip(CircleShape)
-                    .background(c.bgCard.copy(0.92f)).clickable(onClick = onResetArt),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(Modifier.padding(8.dp).size(28.dp).clip(CircleShape).background(c.bgCard.copy(0.92f)).clickable(onClick = onResetArt), contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.Close, null, tint = c.textSecondary, modifier = Modifier.size(14.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun SwipeGhostCover(uri: Uri, forward: Boolean, gap: Float, travel: Float, width: androidx.compose.ui.unit.Dp, shape: RoundedCornerShape) {
+    val density = LocalDensity.current
+    val widthPx = with(density) { width.toPx() }
+    val towardsNeighbour = if (forward) -travel else travel
+    val progress = (towardsNeighbour / (widthPx * 0.24f)).coerceIn(0f, 1f)
+    val reveal = progress * progress * (3f - 2f * progress)
+    Box(Modifier.fillMaxSize().graphicsLayer {
+        translationX = (widthPx + gap) * if (forward) 1f else -1f
+        alpha = reveal
+        val scale = 0.97f + 0.03f * reveal
+        scaleX = scale; scaleY = scale
+    }.clip(shape)) {
+        OptimizedAlbumArt(uri = uri, title = "", modifier = Modifier.fillMaxSize(), targetSize = CoilSize(640, 640))
     }
 }
 

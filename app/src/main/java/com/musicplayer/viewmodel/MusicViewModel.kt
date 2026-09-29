@@ -1332,6 +1332,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         prefs.saveUserAlbums(normalized)
     }
 
+    /** Returns the track that a cover swipe would reveal without mutating playback state. */
+    fun playerNeighbour(forward: Boolean): Song? {
+        val current = _currentSong.value ?: return null
+        if (!forward && _currentPosition.value > 3000L) return null
+        if (!_settings.value.shuffleEnabled) {
+            bridgeQueueRelative(if (forward) 1 else -1)?.let { return it }
+        }
+        val sorted = sortedVisibleSongs(getVisibleSongs())
+        if (sorted.size < 2) return null
+        val index = sorted.indexOfFirst { it.id == current.id }.takeIf { it >= 0 }
+            ?: _currentIndex.value.coerceIn(0, sorted.lastIndex)
+        if (_settings.value.shuffleEnabled && forward) {
+            shuffleRemaining.firstOrNull()?.let { return sorted.getOrNull(it) }
+        }
+        val raw = if (forward) index + 1 else index - 1
+        val target = when {
+            raw in sorted.indices -> raw
+            _settings.value.repeatMode == RepeatMode.ALL -> (raw + sorted.size) % sorted.size
+            else -> return null
+        }
+        return sorted.getOrNull(target)
+    }
+
     fun playNext() {
         if (!_settings.value.shuffleEnabled) bridgeQueueRelative(1)?.let { nextSong ->
             val sorted = getSortedSongs()
