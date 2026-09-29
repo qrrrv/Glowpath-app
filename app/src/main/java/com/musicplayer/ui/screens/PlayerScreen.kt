@@ -40,6 +40,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -567,11 +569,11 @@ private fun AlbumArtSection(
     val artShape = RoundedCornerShape(artCorner)
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     val travel = remember { Animatable(0f) }
     val tilt = remember { Animatable(0f) }
     var dragTravel by remember { mutableStateOf<Float?>(null) }
     var dragTilt by remember { mutableFloatStateOf(0f) }
-    var swiping by remember { mutableStateOf(false) }
     val gap = with(density) { 24.dp.toPx() }
     val follow = 0.92f
     val blockedFollow = 0.3f
@@ -585,7 +587,6 @@ private fun AlbumArtSection(
         tilt.snapTo(0f)
         dragTravel = null
         dragTilt = 0f
-        swiping = false
     }
     Box(contentAlignment = Alignment.BottomEnd) {
         Box(
@@ -605,12 +606,17 @@ private fun AlbumArtSection(
                         val width = size.width.toFloat()
                         var dx = 0f
                         var committed = false
-                        swiping = true
+                        var thresholdAnnounced = false
                         try {
                             while (true) {
                                 val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                                 dx = change.position.x - down.position.x
                                 val blocked = (dx > 0f && previousArtUri == null) || (dx < 0f && nextArtUri == null)
+                                val nowArmed = !blocked && width > 0f && kotlin.math.abs(dx) > width * commitFraction
+                                if (nowArmed && !thresholdAnnounced && change.pressed) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                                    thresholdAnnounced = true
+                                }
                                 dragTravel = if (blocked) dx * blockedFollow else dx * follow
                                 dragTilt = if (width > 0f) (dragTravel ?: 0f) / width * tiltDegrees else 0f
                                 change.consume()
@@ -622,11 +628,15 @@ private fun AlbumArtSection(
                             if (armed) {
                                 committed = true
                                 val shown = dragTravel ?: 0f
-                                dragTravel = null
-                                dragTilt = 0f
+                                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                 scope.launch {
-                                    tilt.animateTo(0f, tween(180))
+                                    // Keep dragTravel visible until the animation owns the value.
+                                    // Clearing it before snapTo() caused a one-frame jump to zero.
                                     travel.snapTo(shown)
+                                    tilt.snapTo(if (width > 0f) shown / width * tiltDegrees else 0f)
+                                    dragTravel = null
+                                    dragTilt = 0f
+                                    launch { tilt.animateTo(0f, tween(180)) }
                                     travel.animateTo(if (forward) -(width + gap) else width + gap, tween(180))
                                     if (forward) onSwipeNext() else onSwipePrev()
                                 }
@@ -641,8 +651,7 @@ private fun AlbumArtSection(
                                 dragTilt = 0f
                                 scope.launch { tilt.animateTo(0f, settleSpec) }
                             }
-                            swiping = false
-                        }
+                                            }
                     }
                 },
             contentAlignment = Alignment.Center
@@ -657,7 +666,9 @@ private fun AlbumArtSection(
             Box(Modifier.fillMaxSize()
                 .graphicsLayer {
                     translationX = 0f
-                    rotationZ = if (swiping) dragTilt else tilt.value
+                    rotationZ = dragTravel?.let { travelX ->
+                        travelX / size.width.coerceAtLeast(1f) * tiltDegrees
+                    } ?: tilt.value
                 }
                 .clip(artShape)
                 .background(c.bgCard)
