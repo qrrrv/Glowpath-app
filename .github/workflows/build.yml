@@ -25,19 +25,12 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Restore stable app signing key
-        env:
-          GLOWPATH_KEYSTORE_BASE64: ${{ secrets.GLOWPATH_KEYSTORE_BASE64 }}
-        run: |
-          test -n "$GLOWPATH_KEYSTORE_BASE64"
-          echo "$GLOWPATH_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/glowpath.keystore"
-
       - name: Build signed Debug APK
         env:
-          GLOWPATH_KEYSTORE_PATH: ${{ runner.temp }}/glowpath.keystore
-          GLOWPATH_KEYSTORE_PASSWORD: ${{ secrets.GLOWPATH_KEYSTORE_PASSWORD }}
-          GLOWPATH_KEY_ALIAS: ${{ secrets.GLOWPATH_KEY_ALIAS }}
-          GLOWPATH_KEY_PASSWORD: ${{ secrets.GLOWPATH_KEY_PASSWORD }}
+          GLOWPATH_KEYSTORE_PATH: ${{ github.workspace }}/signing/glowpath.keystore
+          GLOWPATH_KEYSTORE_PASSWORD: glowpath-public-signing-2026
+          GLOWPATH_KEY_ALIAS: glowpath
+          GLOWPATH_KEY_PASSWORD: glowpath-public-signing-2026
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
