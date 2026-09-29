@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.em
@@ -26,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -717,53 +720,29 @@ fun ThemePickerDialog(
 ) {
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
-    val scrollState = rememberScrollState()
-    val themes = listOf(
-        themeGridEntry(AppTheme.BLOOMEE, "Малиновый"),
-        themeGridEntry(AppTheme.DARK_BROWN, "Шоколадный"),
-        themeGridEntry(AppTheme.DARK_BLACK, "Антрацитовый"),
-        themeGridEntry(AppTheme.LIGHT, "Молочный"),
-        themeGridEntry(AppTheme.PURPLE, "Аметистовый"),
-        themeGridEntry(AppTheme.PINK, "Пудровый"),
-        themeGridEntry(AppTheme.OCEAN, "Лазурный"),
-        themeGridEntry(AppTheme.FOREST, "Хвойно-зелёный"),
-        themeGridEntry(AppTheme.SUNSET, "Коралловый"),
-        themeGridEntry(AppTheme.MIDNIGHT, "Индиго"),
-        themeGridEntry(AppTheme.NEON, "Мятно-неоновый"),
-        themeGridEntry(AppTheme.ROSE_GOLD, "Розовое золото"),
-        themeGridEntry(AppTheme.ARCTIC, "Ледяной голубой"),
-        themeGridEntry(AppTheme.AMBER, "Янтарный"),
-        themeGridEntry(AppTheme.EMERALD, "Изумрудный"),
-        themeGridEntry(AppTheme.AMOLED, "Угольный"),
-        themeGridEntry(AppTheme.LAVENDER, "Лавандовый"),
-        themeGridEntry(AppTheme.RUBY, "Рубиновый"),
-        themeGridEntry(AppTheme.STEEL, "Стальной"),
-        themeGridEntry(AppTheme.MATCHA, "Фисташковый"),
-        themeGridEntry(AppTheme.DESERT, "Песочный"),
-        themeGridEntry(AppTheme.COBALT, "Кобальтовый"),
-        themeGridEntry(AppTheme.CHERRY, "Вишнёвый"),
-        themeGridEntry(AppTheme.MOCHA, "Кофейный"),
-        themeGridEntry(AppTheme.AURORA, "Мятно-бирюзовый"),
-        themeGridEntry(AppTheme.COSMOS, "Орхидейный"),
-        themeGridEntry(AppTheme.SUNRISE, "Абрикосовый"),
-        themeGridEntry(AppTheme.GRAPHITE, "Графитовый"),
-        themeGridEntry(AppTheme.SAKURA, "Нежно-розовый"),
-        themeGridEntry(AppTheme.LAGOON, "Аквамариновый"),
-        themeGridEntry(AppTheme.VOLCANO, "Терракотовый"),
-        themeGridEntry(AppTheme.IVORY, "Слоновая кость"),
-        themeGridEntry(AppTheme.CITRUS, "Лимонный"),
-        themeGridEntry(AppTheme.FROST, "Морозный циан"),
-        themeGridEntry(AppTheme.EMBER, "Медный"),
-        themeGridEntry(AppTheme.TURQUOISE, "Бирюзовый"),
-        themeGridEntry(AppTheme.PLUM, "Сливовый"),
-        themeGridEntry(AppTheme.PEARL, "Жемчужный"),
-        themeGridEntry(AppTheme.OLIVE, "Оливковый"),
-        themeGridEntry(AppTheme.SAPPHIRE, "Сапфировый"),
-        themeGridEntry(AppTheme.MINT, "Мятный"),
-        themeGridEntry(AppTheme.BRONZE, "Бронзовый"),
-        themeGridEntry(AppTheme.WINE, "Винный"),
-    )
-    val selectedEntry = themes.firstOrNull { it.theme == currentTheme }
+    val themes = remember {
+        listOf(
+            themeGridEntry(AppTheme.MATERIAL_YOU, "Dynamic"),
+            themeGridEntry(AppTheme.PINK, "Pink"),
+            themeGridEntry(AppTheme.OCEAN, "Blue"),
+            themeGridEntry(AppTheme.FOREST, "Green"),
+            themeGridEntry(AppTheme.SUNSET, "Sunset"),
+            themeGridEntry(AppTheme.PURPLE, "Purple"),
+            themeGridEntry(AppTheme.DARK_BROWN, "Brown"),
+            themeGridEntry(AppTheme.DARK_BLACK, "Graphite"),
+            themeGridEntry(AppTheme.NEON, "Neon"),
+            themeGridEntry(AppTheme.ROSE_GOLD, "Rose Gold"),
+            themeGridEntry(AppTheme.ARCTIC, "Arctic"),
+            themeGridEntry(AppTheme.EMERALD, "Emerald"),
+            themeGridEntry(AppTheme.LAVENDER, "Lavender"),
+            themeGridEntry(AppTheme.COSMOS, "Cosmos"),
+            themeGridEntry(AppTheme.SAKURA, "Sakura"),
+            themeGridEntry(AppTheme.TURQUOISE, "Turquoise"),
+            themeGridEntry(AppTheme.CITRUS, "Citrus"),
+            themeGridEntry(AppTheme.WINE, "Wine")
+        )
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -771,118 +750,128 @@ fun ThemePickerDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 24.dp)
-                .heightIn(max = 760.dp),
-            shape = RoundedCornerShape(32.dp),
+                .padding(horizontal = 12.dp, vertical = 24.dp),
+            shape = RoundedCornerShape(28.dp),
             color = colors.surface,
-            tonalElevation = 10.dp,
-            shadowElevation = 22.dp
+            tonalElevation = 8.dp
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                lerp(colors.primaryContainer, colors.surface, 0.56f),
-                                colors.surface,
-                                colors.surfaceContainerLow
-                            )
-                        )
-                    )
+            Column(
+                modifier = Modifier.padding(vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 18.dp, end = 10.dp, top = 18.dp, bottom = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier.size(52.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            color = colors.primaryContainer
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Rounded.Palette,
-                                    null,
-                                    tint = colors.onPrimaryContainer,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Темы и атмосфера",
-                                color = colors.onSurface,
-                                fontFamily = font,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 21.sp
-                            )
-                            Text(
-                                "Готовые палитры и расширенный редактор своей темы в одном окне",
-                                color = colors.onSurfaceVariant,
-                                fontFamily = font,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, null, tint = colors.onSurfaceVariant)
-                        }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Color scheme", fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                        Text("Choose the colors for your Glowpath", color = colors.onSurfaceVariant, fontFamily = font, fontSize = 13.sp)
                     }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Закрыть")
+                    }
+                }
 
-                    HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.55f))
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    items(themes, key = { it.theme.name }) { entry ->
+                        AniSyncThemeItem(
+                            entry = entry,
+                            selected = currentTheme == entry.theme,
+                            onClick = { onThemeSelected(entry.theme) }
+                        )
+                    }
+                }
 
-                    Column(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(scrollState)
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 20.dp))
+
+                TextButton(
+                    onClick = onCustomThemeClick,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Icon(Icons.Rounded.Palette, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Custom colors", fontFamily = font, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AniSyncThemeItem(
+    entry: ThemeGridEntry,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) colors.primary else Color.Transparent,
+        animationSpec = tween(280),
+        label = "theme_border"
+    )
+    val checkScale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "theme_check"
+    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.width(86.dp)
+    ) {
+        Surface(
+            modifier = Modifier
+                .size(76.dp)
+                .border(3.dp, borderColor, RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(24.dp))
+                .clickable(onClick = onClick),
+            color = colors.surfaceContainerHigh,
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                AniSyncFourColorPreview(entry, Modifier.size(58.dp))
+                if (checkScale > 0.01f) {
+                    Surface(
+                        modifier = Modifier.size((28 * checkScale).dp),
+                        shape = CircleShape,
+                        color = colors.primary
                     ) {
-                        ThemePickerSummaryCard(
-                            currentTheme = currentTheme,
-                            previewEntry = selectedEntry
-                        )
-
-                        CustomThemeHeroCard(
-                            isSelected = currentTheme == AppTheme.CUSTOM,
-                            onClick = onCustomThemeClick
-                        )
-
-                        ThemePickerSectionLabel("Готовые палитры")
-
-                        themes.chunked(2).forEach { row ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                row.forEach { entry ->
-                                    ThemeGridCard(
-                                        modifier = Modifier.weight(1f),
-                                        entry = entry,
-                                        selected = currentTheme == entry.theme,
-                                        onClick = { onThemeSelected(entry.theme) }
-                                    )
-                                }
-                                if (row.size == 1) Spacer(Modifier.weight(1f))
-                            }
-                        }
-
-                        FilledTonalButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(18.dp)
-                        ) {
-                            Text("Готово", fontFamily = font, fontWeight = FontWeight.SemiBold)
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Check, contentDescription = "Выбрано", tint = colors.onPrimary, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
             }
         }
+        Text(
+            text = entry.label,
+            fontFamily = LocalAppFontFamily.current,
+            fontSize = 14.sp,
+            color = if (selected) colors.primary else colors.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun AniSyncFourColorPreview(entry: ThemeGridEntry, modifier: Modifier = Modifier) {
+    val palette = remember(entry.theme) {
+        val app = appColorsForTheme(entry.theme)
+        listOf(app.accent, app.accentVar, app.accentMuted, app.bgElevated)
+    }
+    Canvas(modifier = modifier.clip(CircleShape)) {
+        val size = size.minDimension
+        val topLeft = Offset((this.size.width - size) / 2f, (this.size.height - size) / 2f)
+        drawArc(palette[0], 180f, 90f, true, topLeft, Size(size, size))
+        drawArc(palette[1], 270f, 90f, true, topLeft, Size(size, size))
+        drawArc(palette[2], 0f, 90f, true, topLeft, Size(size, size))
+        drawArc(palette[3], 90f, 90f, true, topLeft, Size(size, size))
     }
 }
 
