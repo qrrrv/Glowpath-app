@@ -500,7 +500,8 @@ fun MusicPlayerApp(
                     onStatsClick       = { navController.navigate("stats") },
                     onEqualizerClick   = { navController.navigate("equalizer") },
                     onCustomThemeClick = { navController.navigate("custom_theme") },
-                    onTopBarClick      = { navController.navigate("topbar_settings") }
+                    onTopBarClick      = { navController.navigate("topbar_settings") },
+                    onAboutClick       = { navController.navigate("about") }
                 )
             }
 
@@ -524,6 +525,10 @@ fun MusicPlayerApp(
                         openRootTab("online_search")
                     }
                 )
+            }
+
+            composable("about", enterTransition = { AnimationsApplier.screenEnter(settings.screenTransitionAnim, settings.animParams) }, exitTransition = { AnimationsApplier.screenExit(settings.screenTransitionAnim, settings.animParams) }, popEnterTransition = { AnimationsApplier.screenPopEnter(settings.screenTransitionAnim, settings.animParams) }, popExitTransition = { AnimationsApplier.screenPopExit(settings.screenTransitionAnim, settings.animParams) }) {
+                AboutScreen(onBack = { navController.popBackStack() })
             }
 
             composable("topbar_settings", enterTransition = { AnimationsApplier.screenEnter(settings.screenTransitionAnim, settings.animParams) }, exitTransition = { AnimationsApplier.screenExit(settings.screenTransitionAnim, settings.animParams) }, popEnterTransition = { AnimationsApplier.screenPopEnter(settings.screenTransitionAnim, settings.animParams) }, popExitTransition = { AnimationsApplier.screenPopExit(settings.screenTransitionAnim, settings.animParams) }) {

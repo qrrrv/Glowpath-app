@@ -113,7 +113,8 @@ fun SettingsScreen(
     onStatsClick: () -> Unit = {},
     onEqualizerClick: () -> Unit = {},
     onCustomThemeClick: () -> Unit = {},
-    onTopBarClick: () -> Unit = {}
+    onTopBarClick: () -> Unit = {},
+    onAboutClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
@@ -151,18 +152,7 @@ fun SettingsScreen(
     val openFontPicker = {
         showFontPickerDialog = true
     }
-    val openAbout = {
-        val uri = android.net.Uri.parse("https://t.me/plugin_XD")
-        val tgIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
-            setPackage("org.telegram.messenger")
-        }
-        val fallback = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
-        try {
-            context.startActivity(tgIntent)
-        } catch (_: Exception) {
-            context.startActivity(fallback)
-        }
-    }
+    val openAbout = onAboutClick
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
