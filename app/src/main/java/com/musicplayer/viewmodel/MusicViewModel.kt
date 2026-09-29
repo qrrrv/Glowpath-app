@@ -909,6 +909,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         startPlayback(song)
     }
 
+    /**
+     * Remembers tracks that were actually played so the Previous button is meaningful even
+     * while shuffle is enabled. This is a back-stack, not a second randomizer.
+     */
+    private fun rememberPreviousTrack(nextSong: Song) {
+        val current = _currentSong.value ?: return
+        if (current.id == nextSong.id) return
+        if (previousTrackHistory.lastOrNull() != current.id) {
+            previousTrackHistory += current.id
+        }
+        if (previousTrackHistory.size > MAX_PREVIOUS_TRACKS) {
+            previousTrackHistory.removeAt(0)
+        }
+    }
+
     private fun notificationArtUri(song: Song): Uri? =
         _customArtMap.value[song.id] ?: song.albumArtUri
 
@@ -940,7 +955,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun startPlayback(song: Song) {
+    private fun startPlayback(song: Song, rememberHistory: Boolean = true) {
+        if (rememberHistory) rememberPreviousTrack(song)
         flushStatsIfNeeded()  // record previous song before switching
         // Сначала останавливаем текущий плеер (это вызовет notifyMasterReleased в dualEngine),
         // а ПОТОМ отменяем переход — иначе cancelNext() падал на уже освобождённом плеере
@@ -1025,7 +1041,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             },
             onSwapReady = { swappedToSong ->
                 // Вызывается в начале кроссфейда — обновляем UI немедленно
-                // чтобы название/обложка соответствовали уже играющему треку
+                // чтобы название/обложка соответствовали уже играющему треку.
+                // Кроссфейд не проходит через startPlayback(), поэтому запоминаем
+                // предыдущий трек здесь тоже.
+                rememberPreviousTrack(swappedToSong)
                 _currentSong.value  = swappedToSong
                 val list = sortedVisibleSongs(getVisibleSongs())
                 val idx = list.indexOfFirst { it.id == swappedToSong.id }
@@ -1379,27 +1398,45 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playPrevious() {
-        if (_currentPosition.value > 3000L) { seekTo(0L); return }
-        if (!_settings.value.shuffleEnabled) bridgeQueueRelative(-1)?.let { prevSong ->
-            val sorted = getSortedSongs()
-            _currentIndex.value = sorted.indexOf(prevSong).takeIf { it >= 0 } ?: _songs.value.indexOf(prevSong)
-            playSong(prevSong, preserveBridgeQueue = true)
+        // Keep the familiar player behaviour: pressing Previous near the start goes back
+        // through listening history; while a track is already playing, restart it first.
+        if (_currentPosition.value > 3000L) {
+            seekTo(0L)
             return
         }
 
-        val visibleSongs = getVisibleSongs()
-        val sorted = when (_settings.value.sortOrder) {
-            com.musicplayer.data.SortOrder.TITLE      -> visibleSongs.sortedBy { it.displayTitle().lowercase() }
-            com.musicplayer.data.SortOrder.ARTIST     -> visibleSongs.sortedBy { it.displayArtist().lowercase() }
-            com.musicplayer.data.SortOrder.ALBUM      -> visibleSongs.sortedBy { it.album.lowercase() }
-            com.musicplayer.data.SortOrder.DURATION   -> visibleSongs.sortedBy { it.duration }
-            com.musicplayer.data.SortOrder.DATE_ADDED -> visibleSongs.sortedByDescending { it.id }
+        val songsById = _songs.value.associateBy { it.id }
+        while (previousTrackHistory.isNotEmpty()) {
+            val previousId = previousTrackHistory.removeAt(previousTrackHistory.lastIndex)
+            val previousSong = songsById[previousId] ?: continue
+            val sorted = sortedVisibleSongs(getVisibleSongs())
+            _currentIndex.value = sorted.indexOfFirst { it.id == previousSong.id }
+                .takeIf { it >= 0 }
+                ?: -1
+            val preserveQueue = resolveBridgeQueueSongs().isNotEmpty()
+            startPlayback(previousSong, rememberHistory = false)
+            if (!preserveQueue) clearBridgeQueue()
+            return
         }
 
+        // No history yet (for example after app relaunch): use the deterministic previous
+        // item in the active queue. Never generate a random track for the Previous button.
+        if (!_settings.value.shuffleEnabled) bridgeQueueRelative(-1)?.let { previousSong ->
+            val sorted = getSortedSongs()
+            _currentIndex.value = sorted.indexOf(previousSong).takeIf { it >= 0 }
+                ?: _songs.value.indexOf(previousSong)
+            playSong(previousSong, preserveBridgeQueue = true)
+            return
+        }
+
+        val sorted = sortedVisibleSongs(getVisibleSongs())
         if (sorted.isEmpty()) return
-        val prevIdx = if (_currentIndex.value <= 0) sorted.size - 1 else _currentIndex.value - 1
-        _currentIndex.value = prevIdx
-        startPlayback(sorted[prevIdx])
+        val currentIndex = sorted.indexOfFirst { it.id == _currentSong.value?.id }
+            .takeIf { it >= 0 }
+            ?: _currentIndex.value.coerceIn(0, sorted.lastIndex)
+        val previousIndex = if (currentIndex <= 0) sorted.lastIndex else currentIndex - 1
+        _currentIndex.value = previousIndex
+        startPlayback(sorted[previousIndex])
     }
 
     fun toggleShuffle() {
@@ -1659,6 +1696,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private var shuffleHistory = mutableListOf<Int>()  // история воспроизведенных индексов
     private var shuffleRemaining = mutableListOf<Int>()  // оставшиеся треки для shuffle
+    private val previousTrackHistory = mutableListOf<Long>()
+    private companion object {
+        const val MAX_PREVIOUS_TRACKS = 100
+    }
 
     /** Генерирует следующий случайный индекс с учетом истории */
     private fun getNextShuffleIndex(currentIndex: Int, listSize: Int): Int {
