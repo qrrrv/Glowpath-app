@@ -78,6 +78,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -243,7 +244,7 @@ private fun DeveloperCard(name: String, github: String, avatar: String, website:
     Column(Modifier.fillMaxWidth()) {
         Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 8.dp, bottomEnd = 8.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(avatar).crossfade(true).build(), contentDescription = name, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(30.dp)), placeholder = painterResource(R.drawable.ic_music_note), error = painterResource(R.drawable.ic_music_note))
+                AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(avatar).crossfade(true).build(), contentDescription = name, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(30.dp)), placeholder = painterResource(R.drawable.ic_music_placeholder), error = painterResource(R.drawable.ic_music_placeholder))
                 Spacer(Modifier.height(16.dp))
                 Text(name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(18.dp))
@@ -276,8 +277,7 @@ private fun ExpressiveButton(icon: ImageVector, text: String, modifier: Modifier
     }
 }
 
-private fun Modifier.graphicsLayerCompat(scale: Float) = this.then(Modifier.graphicsLayerCompatInternal(scale))
-private fun Modifier.graphicsLayerCompatInternal(scale: Float) = androidx.compose.ui.graphics.graphicsLayer { scaleX = scale; scaleY = scale }
+private fun Modifier.graphicsLayerCompat(scale: Float) = this.then(Modifier.graphicsLayer { scaleX = scale; scaleY = scale })
 
 @Composable
 private fun CommunityGroup(title: String, members: List<CommunityMember>, onOpen: (String) -> Unit) {
@@ -293,7 +293,7 @@ private fun CommunityRow(member: CommunityMember, onOpen: (String) -> Unit, firs
     val avatar = "https://github.com/${member.github}.png"
     Card(modifier = Modifier.fillMaxWidth().clickable { onOpen("https://github.com/${member.github}") }, shape = when { first && last -> RoundedCornerShape(24.dp); first -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 6.dp, bottomEnd = 6.dp); last -> RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 24.dp, bottomEnd = 24.dp); else -> RoundedCornerShape(6.dp) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(model = ImageRequest.Builder(context).data(avatar).crossfade(true).build(), contentDescription = member.name, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)), placeholder = painterResource(R.drawable.ic_music_note), error = painterResource(R.drawable.ic_music_note))
+            AsyncImage(model = ImageRequest.Builder(context).data(avatar).crossfade(true).build(), contentDescription = member.name, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)), placeholder = painterResource(R.drawable.ic_music_placeholder), error = painterResource(R.drawable.ic_music_placeholder))
             Column(Modifier.weight(1f).padding(horizontal = 14.dp)) { Text(member.name, fontWeight = FontWeight.Bold); Text(member.role, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 24.sp)
         }
