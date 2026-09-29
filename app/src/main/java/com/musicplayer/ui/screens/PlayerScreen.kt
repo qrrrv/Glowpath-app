@@ -115,26 +115,6 @@ fun PlayerScreen(
             artworkGradientColors = SongColorCache.getGradientColors(context, uri)
         }
     }
-    // ── Page-flip animation ───────────────────────────────────────────────────
-    var flipDirection by remember { mutableIntStateOf(0) }
-    val flipRotY = remember { Animatable(0f) }
-    val artSlideX = remember { Animatable(0f) }
-    var prevSongId by remember { mutableLongStateOf(song!!.id) }
-    LaunchedEffect(song!!.id) {
-        if (prevSongId != song!!.id && flipDirection != 0) {
-            val enterFrom = if (flipDirection > 0) -1f else 1f
-            // Slide in from side
-            artSlideX.snapTo(enterFrom)
-            launch {
-                artSlideX.animateTo(0f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow))
-            }
-            flipRotY.snapTo(if (flipDirection > 0) -90f else 90f)
-            flipRotY.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
-            flipDirection = 0
-        }
-        prevSongId = song!!.id
-    }
-
     // ── Swipe-down to close ───────────────────────────────────────────────────
     var swipeOffsetY by remember { mutableFloatStateOf(0f) }
     var isSwipeDragging by remember { mutableStateOf(false) }
@@ -307,14 +287,14 @@ fun PlayerScreen(
         ) {
             Box(Modifier.align(Alignment.TopCenter).padding(top = 10.dp).size(40.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(c.textDisabled.copy(0.35f + (swipeOffsetY / 180f).coerceIn(0f, 0.65f))))
 
-            val doFlipNext: () -> Unit = { flipDirection = 1; scope.launch { flipRotY.animateTo(90f, tween(200, easing = FastOutSlowInEasing)); viewModel.playNext() } }
-            val doFlipPrev: () -> Unit = { flipDirection = -1; scope.launch { flipRotY.animateTo(-90f, tween(200, easing = FastOutSlowInEasing)); viewModel.playPrevious() } }
+            val doFlipNext: () -> Unit = { viewModel.playNext() }
+            val doFlipPrev: () -> Unit = { viewModel.playPrevious() }
             val requestClose: () -> Unit = { scope.launch { animateCloseAndExit() } }
 
             if (isLandscape) {
-                LandscapePlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, flipRotY.value, artSlideX.value, viewModel, customArtUri, previousArtUri, nextArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
+                LandscapePlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, viewModel, customArtUri, previousArtUri, nextArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
             } else {
-                PortraitPlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, flipRotY.value, artSlideX.value, viewModel, customArtUri, previousArtUri, nextArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
+                PortraitPlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, viewModel, customArtUri, previousArtUri, nextArtUri, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
             }
         }
 
@@ -386,7 +366,7 @@ private fun PlayerCollapseBackdrop(
 @Composable
 private fun PortraitPlayerContent(
     song: com.musicplayer.data.Song, isPlaying: Boolean, currentPosition: Long, duration: Long,
-    settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float, flipRotY: Float, artSlideX: Float = 0f,
+    settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float,
     viewModel: MusicViewModel, customArtUri: android.net.Uri?, previousArtUri: android.net.Uri?, nextArtUri: android.net.Uri?,
     onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit,
     onSwipeNext: () -> Unit, onSwipePrev: () -> Unit, swipeProgress: Float = 0f, openProgress: Float = 1f
@@ -404,7 +384,7 @@ private fun PortraitPlayerContent(
             TopBar(onBack, onLyricsClick, onSettingsClick, swipeProgress)
         }
         Spacer(Modifier.height(20.dp))
-        AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, previousArtUri, nextArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
+        AlbumArtSection(song, isPlaying, artScale, customArtUri, previousArtUri, nextArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
         Spacer(Modifier.height(24.dp))
         Column(Modifier.graphicsLayer {
             alpha = contentReveal
@@ -428,7 +408,7 @@ private fun PortraitPlayerContent(
 @Composable
 private fun LandscapePlayerContent(
     song: com.musicplayer.data.Song, isPlaying: Boolean, currentPosition: Long, duration: Long,
-    settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float, flipRotY: Float, artSlideX: Float = 0f,
+    settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float,
     viewModel: MusicViewModel, customArtUri: android.net.Uri?, previousArtUri: android.net.Uri?, nextArtUri: android.net.Uri?,
     onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit,
     onSwipeNext: () -> Unit, onSwipePrev: () -> Unit, swipeProgress: Float = 0f, openProgress: Float = 1f
@@ -445,7 +425,7 @@ private fun LandscapePlayerContent(
                 TopBar(onBack, onLyricsClick, onSettingsClick, swipeProgress)
             }
             Spacer(Modifier.height(8.dp))
-            AlbumArtSection(song, isPlaying, artScale, flipRotY, artSlideX, customArtUri, previousArtUri, nextArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
+            AlbumArtSection(song, isPlaying, artScale, customArtUri, previousArtUri, nextArtUri, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress)
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f).fillMaxHeight().graphicsLayer {
@@ -575,7 +555,7 @@ private fun AnimatedBackButton(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlbumArtSection(
-    song: com.musicplayer.data.Song, isPlaying: Boolean, artScale: Float, flipRotY: Float, artSlideX: Float = 0f,
+    song: com.musicplayer.data.Song, isPlaying: Boolean, artScale: Float,
     customArtUri: android.net.Uri?, previousArtUri: android.net.Uri?, nextArtUri: android.net.Uri?,
     onSwipeNext: () -> Unit, onSwipePrev: () -> Unit, onResetArt: () -> Unit,
     albumArtAnim: Int = 0, animParams: com.musicplayer.data.AnimParams = com.musicplayer.data.AnimParams(),
@@ -612,8 +592,7 @@ private fun AlbumArtSection(
             modifier = Modifier
                 .size(280.dp * artScale)
                 .graphicsLayer {
-                    translationX = (dragTravel ?: travel.value) + artSlideX * size.width * 0.6f
-                    rotationY = flipRotY
+                    translationX = dragTravel ?: travel.value
                     translationY = 0f
                     alpha = 1f
                     scaleX = artScale
