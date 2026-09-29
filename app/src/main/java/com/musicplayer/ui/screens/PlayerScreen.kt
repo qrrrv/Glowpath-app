@@ -101,25 +101,14 @@ fun PlayerScreen(
     val customArtUri: android.net.Uri? = customArtMap[song!!.id]
     val artworkUri = customArtUri ?: song!!.albumArtUri
 
-    // Match OuterTune's player background: derive a color from the current cover
-    // and crossfade to the next cover instead of changing the background abruptly.
-    var artworkColor by remember(artworkUri) { mutableStateOf<Color?>(null) }
+    // Match OuterTune's player background: keep the previous gradient visible
+    // while the next artwork is decoded, then crossfade the complete gradient.
+    var artworkGradientColors by remember { mutableStateOf<List<Color>>(emptyList()) }
     LaunchedEffect(artworkUri) {
-        artworkColor = artworkUri?.let { SongColorCache.getColor(context, it) }
+        artworkUri?.let { uri ->
+            artworkGradientColors = SongColorCache.getGradientColors(context, uri)
+        }
     }
-    val targetArtworkColor = artworkColor ?: c.bgDeep
-    val animatedArtworkColor by animateColorAsState(
-        targetValue = targetArtworkColor,
-        animationSpec = tween(1000, easing = FastOutSlowInEasing),
-        label = "playerArtworkBackground"
-    )
-    val playerBackdrop = Brush.verticalGradient(
-        colors = listOf(
-            androidx.compose.ui.graphics.lerp(c.bgDeep, animatedArtworkColor, 0.52f),
-            androidx.compose.ui.graphics.lerp(c.bgDeep, animatedArtworkColor, 0.18f),
-            c.bgDeep
-        )
-    )
     // ── Page-flip animation ───────────────────────────────────────────────────
     var flipDirection by remember { mutableIntStateOf(0) }
     val flipRotY = remember { Animatable(0f) }
@@ -236,8 +225,27 @@ fun PlayerScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(playerBackdrop, alpha = playerBackgroundAlpha)
+                .background(c.bgDeep.copy(alpha = playerBackgroundAlpha))
         )
+
+        AnimatedContent(
+            targetState = artworkGradientColors,
+            transitionSpec = {
+                fadeIn(tween(1000)).togetherWith(fadeOut(tween(1000)))
+            },
+            label = "playerArtworkGradient"
+        ) { colors ->
+            if (colors.size >= 2) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(colors),
+                            alpha = 0.4f * playerBackgroundAlpha
+                        )
+                )
+            }
+        }
 
         PlayerCollapseBackdrop(
             title = song!!.title,

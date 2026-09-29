@@ -3,6 +3,7 @@ package com.musicplayer.data
 import android.content.Context
 import android.net.Uri
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.palette.graphics.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
@@ -11,58 +12,76 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Process-level singleton palette cache.
- * Colours are extracted once per URI on an IO thread and reused across
- * recompositions / screen re-entries without any extra disk I/O.
- *
- * Uses a Semaphore to limit concurrent bitmap decodes to 4 at a time.
- * Without this, a library of 500+ songs would spawn 500 simultaneous
- * BitmapFactory calls, saturating IO and stalling the main thread.
+ * Process-level album palette cache. The player uses the same two-color gradient
+ * shape as OuterTune; cached packed ARGB values avoid repeated bitmap decoding.
  */
 object SongColorCache {
-
-    // URI string → packed ARGB int (avoids boxing Color on hot path)
-    private val cache = ConcurrentHashMap<String, Int>()
-
-    // Max 4 simultaneous bitmap decodes — keeps IO smooth without blocking
+    private val gradientCache = ConcurrentHashMap<String, List<Int>>()
     private val decodeSemaphore = Semaphore(4)
+    private val fallbackGradient = listOf(0xFF595959.toInt(), 0xFF0D0D0D.toInt())
 
     /**
-     * Returns the dominant vibrant colour for [uri], using the cache on subsequent calls.
-     * Must be called from a coroutine (suspends on IO thread on first access).
+     * Extracts two representative colors from an artwork bitmap. Palette is
+     * intentionally sampled at 16 swatches, then ordered by luminance like
+     * OuterTune's extractGradientColors() before rendering a vertical gradient.
      */
-    suspend fun getColor(context: Context, uri: Uri): Color? {
+    suspend fun getGradientColors(context: Context, uri: Uri): List<Color> {
         val key = uri.toString()
-        cache[key]?.let { return Color(it) }
+        gradientCache[key]?.let { return it.map(::Color) }
 
         return decodeSemaphore.withPermit {
-            // Re-check cache after acquiring permit — another coroutine may have decoded it
-            cache[key]?.let { return Color(it) }
+            gradientCache[key]?.let { return it.map(::Color) }
 
-            withContext(Dispatchers.IO) {
+            val packedColors = withContext(Dispatchers.IO) {
                 try {
-                    val bmp = context.contentResolver.openInputStream(uri)?.use { stream ->
-                        val opts = android.graphics.BitmapFactory.Options().apply {
-                            inSampleSize = 4   // 1/4 size — more than enough for palette
-                            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565  // 50% less memory
+                    val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val options = android.graphics.BitmapFactory.Options().apply {
+                            inSampleSize = 4
+                            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
                         }
-                        android.graphics.BitmapFactory.decodeStream(stream, null, opts)
+                        android.graphics.BitmapFactory.decodeStream(stream, null, options)
                     }
-                    bmp?.let {
-                        val palette = Palette.from(it).maximumColorCount(6).generate()
-                        val raw = palette.getVibrantColor(
-                            palette.getDominantColor(0xFF888888.toInt())
-                        )
+
+                    bitmap?.let {
+                        val swatches = Palette.from(it)
+                            .maximumColorCount(16)
+                            .generate()
+                            .swatches
+
+                        val colors = swatches
+                            .associate { swatch -> swatch.rgb to swatch.population }
+                            .entries
+                            .sortedWith(
+                                compareByDescending<Map.Entry<Int, Int>> { it.value }
+                                    .thenByDescending { Color(it.key).luminance() }
+                            )
+                            .map { it.key }
+                            .distinct()
+                            .sortedByDescending { Color(it).luminance() }
+                            .take(2)
+
                         it.recycle()
-                        cache[key] = raw
-                        Color(raw)
-                    }
-                } catch (_: Exception) { null }
+                        if (colors.size >= 2) colors else fallbackGradient
+                    } ?: fallbackGradient
+                } catch (_: Exception) {
+                    fallbackGradient
+                }
             }
+
+            gradientCache[key] = packedColors
+            packedColors.map(::Color)
         }
     }
 
-    fun invalidate(uri: Uri) = cache.remove(uri.toString())
+    /** Compatibility helper used by theme warm-up code. */
+    suspend fun getColor(context: Context, uri: Uri): Color? =
+        getGradientColors(context, uri).firstOrNull()
 
-    fun clear() = cache.clear()
+    fun invalidate(uri: Uri) {
+        gradientCache.remove(uri.toString())
+    }
+
+    fun clear() {
+        gradientCache.clear()
+    }
 }
