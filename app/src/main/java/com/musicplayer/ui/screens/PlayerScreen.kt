@@ -628,7 +628,7 @@ private fun AlbumArtSection(
                             if (armed) {
                                 committed = true
                                 val shown = dragTravel ?: 0f
-                                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                 scope.launch {
                                     // Keep dragTravel visible until the animation owns the value.
                                     // Clearing it before snapTo() caused a one-frame jump to zero.
