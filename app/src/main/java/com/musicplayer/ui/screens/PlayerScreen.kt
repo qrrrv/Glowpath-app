@@ -63,7 +63,9 @@ import com.musicplayer.ui.theme.*
 import androidx.compose.ui.util.lerp as lerpFloat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -89,8 +91,13 @@ fun PlayerScreen(
 
     val song            by viewModel.currentSong.collectAsState()
     val isPlaying       by viewModel.isPlaying.collectAsState()
-    val currentPosition by viewModel.currentPosition.collectAsState()
     val duration        by viewModel.duration.collectAsState()
+    // Позиция тикает 5 раз в секунду. Читаем её ТОЛЬКО в ProgressSection (и в backdrop при сворачивании),
+    // а здесь — лишь булев «порог» (>3с), который меняется раз за трек. Иначе весь плеер
+    // (обложки, градиенты, очередь) пересобирался бы на каждый тик.
+    val positionPastRestart by remember(viewModel) {
+        viewModel.currentPosition.map { it > 3000L }.distinctUntilChanged()
+    }.collectAsState(initial = viewModel.currentPosition.value > 3000L)
     val volume          by viewModel.volume.collectAsState()
     val playbackSpeed   by viewModel.playbackSpeed.collectAsState()
     val settings        by viewModel.settings.collectAsState()
@@ -107,7 +114,6 @@ fun PlayerScreen(
     val artworkUri = customArtUri ?: song!!.albumArtUri
     // Соседние треки считаем не на каждый тик позиции (сортировка всей библиотеки дважды в секунду
     // забивала главный поток и давала микро-подвисания при свайпе), а только когда что-то изменилось.
-    val positionPastRestart = currentPosition > 3000L
     val previousSong = remember(song!!.id, positionPastRestart, songs, settings, bridgeQueueUris, queueRevision) {
         viewModel.playerNeighbour(forward = false)
     }
@@ -251,7 +257,8 @@ fun PlayerScreen(
             artist = if (song!!.artist != "<unknown>") song!!.artist else "Неизвестный",
             albumArtUri = artworkUri,
             isPlaying = isPlaying,
-            progress = if (duration > 0L) currentPosition.toFloat() / duration.toFloat() else 0f,
+            viewModel = viewModel,
+            duration = duration,
             revealProgress = collapseBackdropReveal,
             queueCount = activeQueueCount,
             onPlayPause = { viewModel.togglePlayPause() },
@@ -302,7 +309,7 @@ fun PlayerScreen(
             val requestClose: () -> Unit = { scope.launch { animateCloseAndExit() } }
 
             if (isLandscape) {
-                LandscapePlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, viewModel, customArtUri, previousCover, nextCover, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
+                LandscapePlayerContent(song!!, isPlaying, duration, settings, isFavourite, artScale, viewModel, customArtUri, previousCover, nextCover, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value)
             } else {
                 PlayerQueueHost(
                     viewModel = viewModel,
@@ -310,7 +317,7 @@ fun PlayerScreen(
                     isPlaying = isPlaying,
                     gradientColors = artworkGradientColors
                 ) { queueSlots ->
-                    PortraitPlayerContent(song!!, isPlaying, currentPosition, duration, settings, isFavourite, artScale, viewModel, customArtUri, previousCover, nextCover, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value, queueSlots)
+                    PortraitPlayerContent(song!!, isPlaying, duration, settings, isFavourite, artScale, viewModel, customArtUri, previousCover, nextCover, requestClose, onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev, swipeProgress, openProgress.value, queueSlots)
                 }
             }
         }
@@ -331,7 +338,8 @@ private fun PlayerCollapseBackdrop(
     artist: String,
     albumArtUri: Uri?,
     isPlaying: Boolean,
-    progress: Float,
+    viewModel: MusicViewModel,
+    duration: Long,
     revealProgress: Float,
     queueCount: Int,
     onPlayPause: () -> Unit,
@@ -340,6 +348,10 @@ private fun PlayerCollapseBackdrop(
     modifier: Modifier = Modifier
 ) {
     if (revealProgress <= 0f) return
+
+    // Позицию собираем только пока backdrop реально виден (идёт сворачивание плеера)
+    val position by viewModel.currentPosition.collectAsState()
+    val progress = if (duration > 0L) position.toFloat() / duration.toFloat() else 0f
 
     val density = LocalDensity.current
     val revealAlpha = FastOutSlowInEasing.transform(revealProgress).coerceIn(0f, 1f)
@@ -382,7 +394,7 @@ private fun PlayerCollapseBackdrop(
 
 @Composable
 private fun PortraitPlayerContent(
-    song: com.musicplayer.data.Song, isPlaying: Boolean, currentPosition: Long, duration: Long,
+    song: com.musicplayer.data.Song, isPlaying: Boolean, duration: Long,
     settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float,
     viewModel: MusicViewModel, customArtUri: android.net.Uri?, previousCover: CoverItem?, nextCover: CoverItem?,
     onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit,
@@ -420,7 +432,7 @@ private fun PortraitPlayerContent(
         }) {
             SongMetaSection(song, viewModel)
             Spacer(Modifier.height(24.dp))
-            ProgressSection(currentPosition, duration, isPlaying, viewModel)
+            ProgressSection(duration, isPlaying, viewModel)
             Spacer(Modifier.height(24.dp))
             ControlsSection(settings, isPlaying, viewModel)
             Spacer(Modifier.height(14.dp))
@@ -434,7 +446,7 @@ private fun PortraitPlayerContent(
 
 @Composable
 private fun LandscapePlayerContent(
-    song: com.musicplayer.data.Song, isPlaying: Boolean, currentPosition: Long, duration: Long,
+    song: com.musicplayer.data.Song, isPlaying: Boolean, duration: Long,
     settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, artScale: Float,
     viewModel: MusicViewModel, customArtUri: android.net.Uri?, previousCover: CoverItem?, nextCover: CoverItem?,
     onBack: () -> Unit, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit,
@@ -460,7 +472,7 @@ private fun LandscapePlayerContent(
             translationY = sideOffset
         }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
             SongMetaSection(song, viewModel)
-            ProgressSection(currentPosition, duration, isPlaying, viewModel)
+            ProgressSection(duration, isPlaying, viewModel)
             ControlsSection(settings, isPlaying, viewModel)
             BottomToggleRow(settings, isFavourite, viewModel, song.id)
         }
@@ -678,8 +690,10 @@ private fun SongMetaSection(song: com.musicplayer.data.Song, viewModel: MusicVie
 }
 
 @Composable
-private fun ProgressSection(currentPosition: Long, duration: Long, isPlaying: Boolean, viewModel: MusicViewModel) {
+private fun ProgressSection(duration: Long, isPlaying: Boolean, viewModel: MusicViewModel) {
     val c = MaterialTheme.colorScheme
+    // Единственное место плеера, которое подписано на тик позиции
+    val currentPosition by viewModel.currentPosition.collectAsState()
     val appStyle = com.musicplayer.ui.theme.LocalAppStyle.current
     val settings by viewModel.settings.collectAsState()
     val progress = if (duration > 0L) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f

@@ -52,12 +52,19 @@ android {
 
     buildTypes {
         release {
+            // Release = R8 (инлайнинг, удаление мёртвого кода) + не-debuggable ART.
+            // Именно эту сборку надо мерить на FPS: debug-сборка Compose заметно медленнее.
             isMinifyEnabled = true
             isShrinkResources = true
+            isDebuggable = false
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"), 
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Подписываем тем же ключом, что и debug — APK ставится поверх без удаления данных
+            if (stableKeystorePath.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("glowpathStable")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -72,6 +79,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.10.0")
+
+    // Устанавливает baseline profile (baseline-prof.txt) при первом запуске — AOT-компиляция кода приложения
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Compose BOM — обновлён для совместимости с material3 1.5.x (Expressive)
     implementation(platform("androidx.compose:compose-bom:2025.05.00"))

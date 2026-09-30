@@ -25,15 +25,22 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build signed Debug APK
+      - name: Build signed Release + Debug APK
         env:
           GLOWPATH_KEYSTORE_PATH: ${{ github.workspace }}/signing/glowpath.keystore
           GLOWPATH_KEYSTORE_PASSWORD: glowpath-public-signing-2026
           GLOWPATH_KEY_ALIAS: glowpath
           GLOWPATH_KEY_PASSWORD: glowpath-public-signing-2026
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleRelease assembleDebug --stacktrace
 
-      - name: Upload APK
+      # ЭТОТ APK ставить для проверки плавности (R8, не-debuggable)
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlowPath-release
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: GlowPath-debug
