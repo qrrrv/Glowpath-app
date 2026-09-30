@@ -57,8 +57,9 @@ data class CoverItem(val songId: Long, val artUri: Uri?)
  *  • Обложка идёт за пальцем (92 %) и наклоняется в плоскости экрана: 6° на ширину обложки.
  *    Наклон есть ТОЛЬКО у текущей обложки — соседние едут ровно.
  *  • Соседняя обложка стоит за краем и проявляется (alpha + лёгкий scale), пока текущая уезжает.
- *  • Порог смены трека — 30 % ширины (или быстрый флик). На пороге вибрация, на отпускании — тик.
- *    Если с этой стороны трека нет — резинка (30 %) и вибрация "нельзя".
+ *  • Порог смены трека — 30 % ширины (или быстрый флик). Вибрация как в LatentJam:
+ *    один "порог" за жест при пересечении 30 %, лёгкий тик на отпускании со сменой трека.
+ *    Если с этой стороны трека нет — резинка (30 %) и вибрация "нельзя" на отпускании.
  *  • После отпускания наклон возвращается в 0 пружиной с отскоком, пока обложка улетает.
  *  • Трек меняется, когда обложка уже улетела. Новая текущая обложка садится ровно туда, где стояла
  *    соседняя (тот же composable, тот же кадр) — никаких скачков, никаких "толчков" при посадке.
@@ -138,7 +139,8 @@ fun CoverSwipeCarousel(
 
                     // dx — "виртуальное" смещение пальца; обложка = shown(dx).
                     var dx = unshown(motion.travel)
-                    var armed = commits(dx)
+                    // Вибрация порога — один раз за жест (если схватили уже за порогом — не дёргаем).
+                    var thresholdAnnounced = commits(dx)
                     var rejected = false
                     val tracker = VelocityTracker()
                     tracker.addPosition(down.uptimeMillis, down.position)
@@ -147,13 +149,9 @@ fun CoverSwipeCarousel(
                         val t = shown(dx)
                         motion.travel = t
                         motion.tilt = t / widthPx * tiltDegrees
-                        val now = commits(dx)
-                        if (now != armed) {
-                            armed = now
-                            haptics.performHapticFeedback(
-                                if (now) HapticFeedbackType.GestureThresholdActivate
-                                else HapticFeedbackType.TextHandleMove
-                            )
+                        if (!thresholdAnnounced && commits(dx)) {
+                            thresholdAnnounced = true
+                            haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                         }
                         if (blocked(dx) && abs(dx) > rejectPx) rejected = true
                     }
