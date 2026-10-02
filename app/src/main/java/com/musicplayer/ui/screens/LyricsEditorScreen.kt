@@ -278,6 +278,7 @@ private fun LyricsEditorContent(
     var showExitDialog by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
+    var showWhisper by remember { mutableStateOf(false) }
 
     LaunchedEffect(song.id) {
         if (viewModel.lyricsState.value is LyricsState.Idle) viewModel.loadLyricsForSong(song)
@@ -386,6 +387,7 @@ private fun LyricsEditorContent(
                     },
                     onCancel = if (lines.isNotEmpty()) ({ showImport = false }) else null,
                     hasExisting = lines.isNotEmpty(),
+                    onWhisper = { showWhisper = true },
                     c = c, font = font
                 )
 
@@ -427,6 +429,7 @@ private fun LyricsEditorContent(
                         selectedId = newLine.id
                     },
                     onImport = { showImport = true },
+                    onWhisper = { showWhisper = true },
                     c = c, font = font
                 )
 
@@ -449,10 +452,33 @@ private fun LyricsEditorContent(
                     },
                     onCancel = null,
                     hasExisting = false,
+                    onWhisper = { showWhisper = true },
                     c = c, font = font
                 )
             }
         }
+    }
+
+    if (showWhisper) {
+        WhisperTranscribeDialog(
+            song = song,
+            hasExistingLines = lines.isNotEmpty(),
+            onDismiss = { showWhisper = false },
+            onResult = { synced, wordLevel ->
+                showWhisper = false
+                lines = synced.toEditLines()
+                loaded = true
+                dirty = true
+                selectedId = null
+                showImport = false
+                Toast.makeText(
+                    context,
+                    if (wordLevel) "Готово: ${synced.size} строк. Проверь и сохрани"
+                    else "Готово: ${synced.size} строк. Сервер не дал тайминги слов — они приблизительные",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
     }
 
     if (showExitDialog) {
@@ -593,6 +619,7 @@ private fun LineList(
     onOpen: (EditLine) -> Unit,
     onAdd: () -> Unit,
     onImport: () -> Unit,
+    onWhisper: () -> Unit,
     c: ColorScheme,
     font: FontFamily
 ) {
@@ -673,6 +700,19 @@ private fun LineList(
                 Text("Вставить свой текст (LRC с таймингами слов)", color = c.accent, fontFamily = font, fontSize = 13.sp)
             }
         }
+        item(key = "whisper") {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(c.bgElevated.copy(alpha = 0.4f))
+                    .clickable { onWhisper() }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Распознать текст на слух (Whisper)", color = c.accent, fontFamily = font, fontSize = 13.sp)
+            }
+        }
     }
 }
 
@@ -696,6 +736,7 @@ private fun ImportView(
     onCreate: () -> Unit,
     onCancel: (() -> Unit)?,
     hasExisting: Boolean,
+    onWhisper: () -> Unit,
     c: ColorScheme,
     font: FontFamily
 ) {
@@ -706,6 +747,14 @@ private fun ImportView(
         Text(
             if (hasExisting) "Вставить свой текст" else "Текст не найден",
             color = c.textPrimary, fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 18.sp
+        )
+        FilledTonalButton(onClick = onWhisper, modifier = Modifier.fillMaxWidth()) {
+            Text("Распознать текст на слух (Whisper)")
+        }
+        Text(
+            "Whisper послушает трек и сам расставит тайминги строк и слов. Нужен интернет и ключ Groq/OpenAI " +
+                "(или свой сервер).",
+            color = c.textDisabled, fontFamily = font, fontSize = 12.sp
         )
         Text(
             "Можно вставить обычный текст (по строке на строку — время распределится равномерно, " +
