@@ -1,0 +1,2978 @@
+package com.musicplayer.ui.screens
+
+import android.os.Build
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.unit.em
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.musicplayer.R
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.musicplayer.data.AppTheme
+import com.musicplayer.data.InterfaceStyle
+import com.musicplayer.data.PlayerSettings
+import com.musicplayer.data.RepeatMode
+import com.musicplayer.data.SortOrder
+import kotlin.math.roundToInt
+import com.musicplayer.ui.theme.*
+import com.musicplayer.ui.theme.LocalAppFontFamily
+import com.musicplayer.viewmodel.MusicViewModel
+import com.musicplayer.viewmodel.SleepTimerState
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private data class ThemeGridEntry(
+    val theme: AppTheme,
+    val label: String,
+    val previewStart: Color,
+    val previewEnd: Color,
+    val swatches: List<Color>
+)
+
+private fun themeGridEntry(
+    theme: AppTheme,
+    label: String
+): ThemeGridEntry {
+    val palette = appColorsForTheme(theme)
+    return ThemeGridEntry(
+        theme = theme,
+        label = label,
+        previewStart = palette.accent,
+        previewEnd = palette.accentVar,
+        swatches = listOf(
+            palette.bgDeep,
+            palette.bgElevated,
+            palette.accent,
+            palette.accentVar
+        ).distinct().take(4)
+    )
+}
+
+private data class TypographyStudioPreset(
+    val label: String,
+    val subtitle: String,
+    val icon: ImageVector,
+    val color: Color,
+    val apply: (PlayerSettings) -> PlayerSettings
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(
+    viewModel: MusicViewModel,
+    onBack: () -> Unit,
+    onTransitionsClick: () -> Unit = {},
+    onAnimationsClick: () -> Unit = {},
+    onSleepTimerClick: () -> Unit = {},
+    onStatsClick: () -> Unit = {},
+    onEqualizerClick: () -> Unit = {},
+    onCustomThemeClick: () -> Unit = {},
+    onTopBarClick: () -> Unit = {},
+    onFontClick: () -> Unit = {},
+    onAboutClick: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val settings by viewModel.settings.collectAsState()
+    val sleepTimerState by viewModel.sleepTimerState.collectAsState()
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showTypographyStudio by remember { mutableStateOf(false) }
+    var settingsQuery by rememberSaveable { mutableStateOf("") }
+    val selectedBuiltInFont = remember(settings.selectedFontId) {
+        AppFontList.firstOrNull { it.id == settings.selectedFontId } ?: DefaultAppFont
+    }
+
+    // Displayed font label
+    val fontLabel = when {
+        settings.customFontUri.isNotBlank() ->
+            File(settings.customFontUri).name.substringBeforeLast('.')
+        settings.selectedFontId == DefaultAppFontId -> "По умолчанию (${DefaultAppFont.displayName})"
+        else -> selectedBuiltInFont.displayName
+    }
+    val themeLabel = settings.theme.settingsLabel()
+    val interfaceLabel = if (settings.theme == AppTheme.MATERIAL_YOU) "Material You" else "Material 3"
+    val sleepTimerLabel = when {
+        sleepTimerState.isRunning && sleepTimerState.stopAfterTrack && sleepTimerState.remainingSeconds <= 0 ->
+            "После текущего трека"
+        sleepTimerState.isRunning ->
+            "Осталось ${formatSleepTimerDuration(sleepTimerState.remainingSeconds)}"
+        else -> "Таймер сна, затухание и действие по завершении"
+    }
+    val appVersion = remember(context) {
+        runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrDefault("0.9")
+    }
+    val openFontPicker = onFontClick
+    val openAbout = onAboutClick
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                navigationIcon = {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                title = {
+                    Text(
+                        "Настройки",
+                        fontFamily = LocalAppFontFamily.current,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 22.sp
+                    )
+                },
+                actions = {
+                    IconButton(
+                        onClick = { showThemeDialog = true },
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Icon(Icons.Rounded.Palette, contentDescription = "Открыть темы")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            OutlinedTextField(
+                value = settingsQuery,
+                onValueChange = { settingsQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text("Поиск настроек", fontFamily = LocalAppFontFamily.current) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (settingsQuery.isNotEmpty()) {
+                        IconButton(onClick = { settingsQuery = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Очистить поиск")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                )
+            )
+
+            if (settingsQuery.isNotBlank()) {
+                SettingsSearchResults(
+                    query = settingsQuery,
+                    onTheme = { showThemeDialog = true },
+                    onTypography = { showTypographyStudio = true },
+                    onFont = openFontPicker,
+                    onTopBar = onTopBarClick,
+                    onAnimations = onAnimationsClick,
+                    onTransitions = onTransitionsClick,
+                    onSleepTimer = onSleepTimerClick,
+                    onEqualizer = onEqualizerClick,
+                    onStats = onStatsClick,
+                    onAbout = openAbout,
+                    onShuffle = { viewModel.updateSettings(settings.copy(shuffleEnabled = !settings.shuffleEnabled)) },
+                    onWavySeekBar = { viewModel.updateSettings(settings.copy(useWavySeekBar = !settings.useWavySeekBar)) }
+                )
+            }
+
+            SettingsSectionBlock(
+                title = "Персонализация",
+                subtitle = "Тема, шрифт, типографика и верхняя панель",
+                visible = settingsQuery.isBlank()
+            ) {
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.Palette,
+                    iconBg = MaterialTheme.colorScheme.primary,
+                    title = "Внешний вид",
+                    subtitle = "Текущая тема: $themeLabel",
+                    onClick = { showThemeDialog = true }
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.FormatSize,
+                    iconBg = MaterialTheme.colorScheme.tertiary,
+                    title = "Типографика",
+                    subtitle = "Размер, контраст и превью текста",
+                    onClick = { showTypographyStudio = true }
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.TextFields,
+                    iconBg = MaterialTheme.colorScheme.secondary,
+                    title = "Шрифт",
+                    subtitle = fontLabel,
+                    onClick = openFontPicker
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.Tune,
+                    iconBg = MaterialTheme.colorScheme.primary,
+                    title = "Верхняя панель",
+                    subtitle = "Стиль, фон и поведение шапки",
+                    onClick = onTopBarClick
+                )
+            }
+
+            SettingsSectionBlock(
+                title = "Движение и атмосфера",
+                subtitle = "Анимации, переходы и фоновые эффекты",
+                visible = settingsQuery.isBlank()
+            ) {
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.AutoAwesome,
+                    iconBg = MaterialTheme.colorScheme.primary,
+                    title = "Анимации",
+                    subtitle = "Плавность, ритм и поведение элементов",
+                    onClick = onAnimationsClick
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.SwapHoriz,
+                    iconBg = MaterialTheme.colorScheme.secondary,
+                    title = "Переходы",
+                    subtitle = "Кроссфейд и длительность смены треков",
+                    onClick = onTransitionsClick
+                )
+            }
+
+            SettingsSectionBlock(
+                title = "Воспроизведение",
+                subtitle = "Поведение плеера, сортировка и звук",
+                visible = settingsQuery.isBlank()
+            ) {
+                SettingsSwitchItem(
+                    icon = Icons.Rounded.Shuffle,
+                    iconBg = MaterialTheme.colorScheme.secondary,
+                    title = "Перемешивание",
+                    subtitle = "Случайный порядок треков",
+                    checked = settings.shuffleEnabled,
+                    onCheckedChange = {
+                        viewModel.updateSettings(settings.copy(shuffleEnabled = it))
+                    }
+                )
+                SettingsGroupDivider()
+                SettingsSwitchItem(
+                    icon = Icons.Rounded.ShowChart,
+                    iconBg = MaterialTheme.colorScheme.primary,
+                    title = "Волнистый ползунок",
+                    subtitle = if (settings.useWavySeekBar) {
+                        "В плеере используется волнистый анимированный ползунок"
+                    } else {
+                        "В плеере используется обычный ползунок"
+                    },
+                    checked = settings.useWavySeekBar,
+                    onCheckedChange = {
+                        viewModel.updateSettings(settings.copy(useWavySeekBar = it))
+                    }
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.Bedtime,
+                    iconBg = MaterialTheme.colorScheme.primary,
+                    title = "Таймер сна",
+                    subtitle = sleepTimerLabel,
+                    onClick = onSleepTimerClick
+                )
+                SettingsGroupDivider()
+                SettingsSortItem(
+                    settings = settings,
+                    onSortChange = { viewModel.updateSettings(settings.copy(sortOrder = it)) }
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.GraphicEq,
+                    iconBg = MaterialTheme.colorScheme.tertiary,
+                    title = "Эквалайзер",
+                    subtitle = "Пресеты и настройка звучания",
+                    onClick = onEqualizerClick
+                )
+            }
+
+            SettingsSectionBlock(
+                title = "Сервис и информация",
+                subtitle = "Статистика и сведения о приложении",
+                visible = settingsQuery.isBlank()
+            ) {
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.BarChart,
+                    iconBg = MaterialTheme.colorScheme.secondary,
+                    title = "Статистика",
+                    subtitle = "История прослушивания и показатели библиотеки",
+                    onClick = onStatsClick
+                )
+                SettingsGroupDivider()
+                SettingsNavigationItem(
+                    icon = Icons.Rounded.Info,
+                    iconBg = MaterialTheme.colorScheme.tertiary,
+                    title = "О приложении",
+                    subtitle = "Glowpath · v$appVersion",
+                    onClick = openAbout
+                )
+                if (settings.customFontUri.isNotBlank()) {
+                    SettingsGroupDivider()
+                    SettingsNavigationItem(
+                        icon = Icons.Rounded.RestartAlt,
+                        iconBg = MaterialTheme.colorScheme.error,
+                        title = "Сбросить шрифт",
+                        subtitle = "Вернуть ${DefaultAppFont.displayName} по умолчанию",
+                        onClick = {
+                            viewModel.updateSettings(
+                                settings.copy(
+                                    customFontUri = "",
+                                    selectedFontId = DefaultAppFontId
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(32.dp))
+        }
+    }
+
+    if (showThemeDialog) {
+        ThemePickerDialog(
+            currentTheme    = settings.theme,
+            onThemeSelected = {
+                viewModel.updateSettings(
+                    settings.copy(
+                        theme = it,
+                        useDynamicColors = it == AppTheme.MATERIAL_YOU
+                    )
+                )
+            },
+            onCustomThemeClick = {
+                showThemeDialog = false
+                onCustomThemeClick()
+            },
+            onDismiss = { showThemeDialog = false }
+        )
+    }
+
+    if (showTypographyStudio) {
+        TypographyStudioDialog(
+            viewModel = viewModel,
+            onDismiss = { showTypographyStudio = false }
+        )
+    }
+
+
+
+}
+
+@Composable
+private fun SettingsOverviewCard(
+    themeLabel: String,
+    fontLabel: String,
+    interfaceLabel: String,
+    onThemeClick: () -> Unit,
+    onTypographyClick: () -> Unit,
+    onFontClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        color = colors.surfaceContainerLow,
+        tonalElevation = 2.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            colors.outlineVariant.copy(alpha = 0.58f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = colors.primaryContainer
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.SettingsSuggest,
+                            contentDescription = null,
+                            tint = colors.onPrimaryContainer,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        "Material 3 настройки",
+                        color = colors.onSurface,
+                        fontFamily = font,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 21.sp
+                    )
+                    Text(
+                        "Секции собраны на спокойных surface-контейнерах, list items и мягких акцентах",
+                        color = colors.onSurfaceVariant,
+                        fontFamily = font,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingsInfoPill(
+                    icon = Icons.Rounded.Palette,
+                    label = "Тема",
+                    value = themeLabel,
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsInfoPill(
+                    icon = Icons.Rounded.TextFields,
+                    label = "Шрифт",
+                    value = fontLabel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            SettingsInfoPill(
+                icon = Icons.Rounded.DashboardCustomize,
+                label = "Стиль интерфейса",
+                value = interfaceLabel,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onThemeClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Icon(Icons.Rounded.ColorLens, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Темы", fontFamily = font, fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = onTypographyClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Icon(Icons.Rounded.TextFormat, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Текст", fontFamily = font, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            AssistChip(
+                onClick = onFontClick,
+                shape = RoundedCornerShape(18.dp),
+                label = {
+                    Text(
+                        "Выбрать другой шрифт",
+                        fontFamily = font,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Rounded.UploadFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    icon: ImageVector,
+    tint: Color,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    ListItem(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainerHighest),
+        headlineContent = { Text(title, color = colors.onSurface, fontFamily = LocalAppFontFamily.current, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) },
+        supportingContent = { Text(subtitle, color = colors.onSurfaceVariant, fontFamily = LocalAppFontFamily.current, fontSize = 12.sp) },
+        leadingContent = { SettingsLeadingIcon(icon = icon, tint = tint) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
+    )
+}
+
+@Composable
+private fun SettingsSearchResults(
+    query: String,
+    onTheme: () -> Unit,
+    onTypography: () -> Unit,
+    onFont: () -> Unit,
+    onTopBar: () -> Unit,
+    onAnimations: () -> Unit,
+    onTransitions: () -> Unit,
+    onSleepTimer: () -> Unit,
+    onEqualizer: () -> Unit,
+    onStats: () -> Unit,
+    onAbout: () -> Unit,
+    onShuffle: () -> Unit,
+    onWavySeekBar: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val entries = listOf(
+        Triple("Внешний вид", "Тема и цветовая схема", Icons.Rounded.Palette) to onTheme,
+        Triple("Типографика", "Размер, контраст и превью текста", Icons.Rounded.FormatSize) to onTypography,
+        Triple("Шрифт", "Выбор шрифта приложения", Icons.Rounded.TextFields) to onFont,
+        Triple("Верхняя панель", "Стиль, фон и поведение шапки", Icons.Rounded.Tune) to onTopBar,
+        Triple("Анимации", "Плавность и поведение элементов", Icons.Rounded.AutoAwesome) to onAnimations,
+        Triple("Переходы", "Кроссфейд и смена треков", Icons.Rounded.SwapHoriz) to onTransitions,
+        Triple("Таймер сна", "Остановка после трека и затухание", Icons.Rounded.Bedtime) to onSleepTimer,
+        Triple("Эквалайзер", "Пресеты и настройка звучания", Icons.Rounded.GraphicEq) to onEqualizer,
+        Triple("Перемешивание", "Случайный порядок треков", Icons.Rounded.Shuffle) to onShuffle,
+        Triple("Волнистый ползунок", "Анимированный seek bar в плеере", Icons.Rounded.ShowChart) to onWavySeekBar,
+        Triple("Статистика", "История прослушивания", Icons.Rounded.BarChart) to onStats,
+        Triple("О приложении", "Glowpath и версия приложения", Icons.Rounded.Info) to onAbout
+    )
+    val needle = query.trim().lowercase()
+    val matches = entries.filter { (entry, _) ->
+        entry.first.lowercase().contains(needle) || entry.second.lowercase().contains(needle)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Результаты поиска",
+            color = colors.primary,
+            fontFamily = LocalAppFontFamily.current,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        if (matches.isEmpty()) {
+            Text(
+                text = "Ничего не найдено",
+                color = colors.onSurfaceVariant,
+                fontFamily = LocalAppFontFamily.current,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+        } else {
+            matches.forEach { (entry, action) ->
+                SettingsNavigationItem(
+                    icon = entry.third,
+                    iconBg = colors.primary,
+                    title = entry.first,
+                    subtitle = entry.second,
+                    onClick = action
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionBlock(
+    title: String,
+    subtitle: String,
+    visible: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    if (!visible) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                color = colors.primary,
+                fontFamily = font,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = subtitle,
+                color = colors.onSurfaceVariant,
+                fontFamily = font,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+        }
+        SettingsSection(content = content)
+    }
+}
+
+@Composable
+private fun SettingsGroupDivider() {
+    Spacer(Modifier.height(2.dp))
+}
+
+@Composable
+fun ThemePickerDialog(
+    currentTheme: AppTheme,
+    onThemeSelected: (AppTheme) -> Unit,
+    onCustomThemeClick: () -> Unit = {},
+    onDismiss: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val themes = remember {
+        listOf(
+            themeGridEntry(AppTheme.MATERIAL_YOU, "Dynamic"),
+            themeGridEntry(AppTheme.PINK, "Pink"),
+            themeGridEntry(AppTheme.OCEAN, "Blue"),
+            themeGridEntry(AppTheme.FOREST, "Green"),
+            themeGridEntry(AppTheme.SUNSET, "Sunset"),
+            themeGridEntry(AppTheme.PURPLE, "Purple"),
+            themeGridEntry(AppTheme.DARK_BROWN, "Brown"),
+            themeGridEntry(AppTheme.DARK_BLACK, "Graphite"),
+            themeGridEntry(AppTheme.NEON, "Neon"),
+            themeGridEntry(AppTheme.ROSE_GOLD, "Rose Gold"),
+            themeGridEntry(AppTheme.ARCTIC, "Arctic"),
+            themeGridEntry(AppTheme.EMERALD, "Emerald"),
+            themeGridEntry(AppTheme.LAVENDER, "Lavender"),
+            themeGridEntry(AppTheme.COSMOS, "Cosmos"),
+            themeGridEntry(AppTheme.SAKURA, "Sakura"),
+            themeGridEntry(AppTheme.TURQUOISE, "Turquoise"),
+            themeGridEntry(AppTheme.CITRUS, "Citrus"),
+            themeGridEntry(AppTheme.WINE, "Wine")
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 24.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = colors.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Color scheme", fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                        Text("Choose the colors for your Glowpath", color = colors.onSurfaceVariant, fontFamily = font, fontSize = 13.sp)
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Закрыть")
+                    }
+                }
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    items(themes, key = { it.theme.name }) { entry ->
+                        AniSyncThemeItem(
+                            entry = entry,
+                            selected = currentTheme == entry.theme,
+                            onClick = { onThemeSelected(entry.theme) }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 20.dp))
+
+                TextButton(
+                    onClick = onCustomThemeClick,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Icon(Icons.Rounded.Palette, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Custom colors", fontFamily = font, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AniSyncThemeItem(
+    entry: ThemeGridEntry,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) colors.primary else Color.Transparent,
+        animationSpec = tween(280),
+        label = "theme_border"
+    )
+    val checkScale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "theme_check"
+    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.width(86.dp)
+    ) {
+        Surface(
+            modifier = Modifier
+                .size(76.dp)
+                .border(3.dp, borderColor, RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(24.dp))
+                .clickable(onClick = onClick),
+            color = colors.surfaceContainerHigh,
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                AniSyncFourColorPreview(entry, Modifier.size(58.dp))
+                if (checkScale > 0.01f) {
+                    Surface(
+                        modifier = Modifier.size((28 * checkScale).dp),
+                        shape = CircleShape,
+                        color = colors.primary
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Check, contentDescription = "Выбрано", tint = colors.onPrimary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+        Text(
+            text = entry.label,
+            fontFamily = LocalAppFontFamily.current,
+            fontSize = 14.sp,
+            color = if (selected) colors.primary else colors.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun AniSyncFourColorPreview(entry: ThemeGridEntry, modifier: Modifier = Modifier) {
+    val palette = remember(entry.theme) {
+        val app = appColorsForTheme(entry.theme)
+        listOf(app.accent, app.accentVar, app.accentMuted, app.bgElevated)
+    }
+    Canvas(modifier = modifier.clip(CircleShape)) {
+        val size = size.minDimension
+        val topLeft = Offset((this.size.width - size) / 2f, (this.size.height - size) / 2f)
+        drawArc(palette[0], 180f, 90f, true, topLeft, Size(size, size))
+        drawArc(palette[1], 270f, 90f, true, topLeft, Size(size, size))
+        drawArc(palette[2], 0f, 90f, true, topLeft, Size(size, size))
+        drawArc(palette[3], 90f, 90f, true, topLeft, Size(size, size))
+    }
+}
+
+@Composable
+private fun ThemePickerSummaryCard(
+    currentTheme: AppTheme,
+    previewEntry: ThemeGridEntry?
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val previewStart by animateColorAsState(
+        targetValue = when (currentTheme) {
+            AppTheme.MATERIAL_YOU -> Color(0xFF8CC8FF)
+            else -> previewEntry?.previewStart ?: colors.primary
+        },
+        animationSpec = tween(460),
+        label = "themePreviewStart"
+    )
+    val previewEnd by animateColorAsState(
+        targetValue = when (currentTheme) {
+            AppTheme.MATERIAL_YOU -> Color(0xFFFFB5D8)
+            else -> previewEntry?.previewEnd ?: colors.tertiary
+        },
+        animationSpec = tween(520),
+        label = "themePreviewEnd"
+    )
+    val previewAccent by animateColorAsState(
+        targetValue = lerp(previewStart, previewEnd, 0.38f),
+        animationSpec = tween(520),
+        label = "themePreviewAccent"
+    )
+    val previewSurface by animateColorAsState(
+        targetValue = lerp(colors.surfaceContainerLow, previewStart, 0.14f),
+        animationSpec = tween(420),
+        label = "themePreviewSurface"
+    )
+    val previewSurfaceHigh by animateColorAsState(
+        targetValue = lerp(colors.surfaceContainerHigh, previewEnd, 0.12f),
+        animationSpec = tween(500),
+        label = "themePreviewSurfaceHigh"
+    )
+    val badgeLabel = when (currentTheme) {
+        AppTheme.MATERIAL_YOU -> "Система"
+        AppTheme.CUSTOM -> "Своя"
+        else -> "Готовая"
+    }
+    val subtitle = when (currentTheme) {
+        AppTheme.MATERIAL_YOU -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "Палитра берётся из обоев и системных тонов Android, поэтому ощущается как родная часть системы"
+        } else {
+            "На Android 12+ эта тема станет динамической и будет меняться от обоев, а ниже мягко откатится к нейтральной палитре"
+        }
+        AppTheme.CUSTOM -> "Полный ручной контроль цветов, формы, глубины поверхностей и контейнеров"
+        else -> "Готовая палитра с мягкой анимацией смены цветов, поверхностей и акцентов"
+    }
+
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.64f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            previewSurface.copy(alpha = 0.98f),
+                            previewSurfaceHigh.copy(alpha = 0.98f),
+                            colors.surfaceContainerLow
+                        )
+                    )
+                )
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = previewAccent.copy(alpha = 0.18f)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (currentTheme == AppTheme.MATERIAL_YOU) Icons.Rounded.Wallpaper else Icons.Rounded.AutoAwesome,
+                            null,
+                            tint = previewAccent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Активная тема",
+                        color = colors.onSurfaceVariant,
+                        fontFamily = font,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 12.sp
+                    )
+                    AnimatedContent(
+                        targetState = currentTheme.settingsLabel(),
+                        transitionSpec = {
+                            (fadeIn(tween(220)) + slideInVertically { it / 4 }) togetherWith
+                                (fadeOut(tween(160)) + slideOutVertically { -it / 4 })
+                        },
+                        label = "themeTitle"
+                    ) { label ->
+                        Text(
+                            label,
+                            color = colors.onSurface,
+                            fontFamily = font,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = previewAccent.copy(alpha = 0.16f)
+                ) {
+                    Text(
+                        badgeLabel,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        color = previewAccent,
+                        fontFamily = font,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Text(
+                subtitle,
+                color = colors.onSurfaceVariant,
+                fontFamily = font,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = previewSurfaceHigh.copy(alpha = 0.92f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, previewAccent.copy(alpha = 0.24f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "Preview Player",
+                                color = colors.onSurface,
+                                fontFamily = font,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "Показывает, как тема ведёт себя на поверхности, кнопке и прогрессе",
+                                color = colors.onSurfaceVariant,
+                                fontFamily = font,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(previewStart, previewAccent, previewEnd).forEach { swatch ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(swatch)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(54.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            color = previewStart.copy(alpha = 0.18f)
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.Album, null, tint = previewStart, modifier = Modifier.size(24.dp))
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Название трека",
+                                color = colors.onSurface,
+                                fontFamily = font,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(previewEnd.copy(alpha = 0.14f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.46f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(previewStart, previewAccent, previewEnd)
+                                            )
+                                        )
+                                )
+                            }
+                        }
+                        Surface(
+                            modifier = Modifier.size(42.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = previewAccent
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Rounded.PlayArrow,
+                                    null,
+                                    tint = if (previewAccent.luminance() > 0.52f) Color.Black else Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePickerSectionLabel(text: String) {
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontFamily = LocalAppFontFamily.current,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+}
+
+@Composable
+private fun MaterialYouHeroCard(
+    selected: Boolean,
+    supported: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) colors.secondaryContainer else colors.surfaceContainerHigh,
+        animationSpec = tween(220),
+        label = "materialYouCard"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) colors.secondary else colors.outlineVariant,
+        animationSpec = tween(220),
+        label = "materialYouBorder"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+    ) {
+        Box(
+            modifier = Modifier.background(
+                Brush.linearGradient(
+                    listOf(
+                        Color(0xFF7DCBFF).copy(alpha = 0.14f),
+                        Color(0xFFFFB5D8).copy(alpha = 0.12f),
+                        Color(0xFFA8F0CC).copy(alpha = 0.12f)
+                    )
+                )
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF8CC8FF).copy(alpha = 0.16f)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Wallpaper, null, tint = Color(0xFF5B8DFF), modifier = Modifier.size(22.dp))
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Material You",
+                            color = if (selected) colors.onSecondaryContainer else colors.onSurface,
+                            fontFamily = font,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (selected) colors.secondary else colors.surfaceVariant
+                        ) {
+                            Text(
+                                if (supported) "Adaptive" else "Android 12+",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                color = if (selected) colors.onSecondary else colors.onSurfaceVariant,
+                                fontFamily = font,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                    Text(
+                        if (supported) {
+                            "Цвета подтягиваются из обоев и системной палитры, поэтому приложение выглядит по-настоящему системно"
+                        } else {
+                            "На Android 12+ эта тема станет динамической; ниже мягко откатится к спокойной нейтральной палитре"
+                        },
+                        color = if (selected) colors.onSecondaryContainer.copy(alpha = 0.82f) else colors.onSurfaceVariant,
+                        fontFamily = font,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomThemeHeroCard(
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) colors.tertiaryContainer else colors.surfaceContainerHigh
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isSelected) colors.tertiary else colors.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(46.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = colors.tertiary
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Palette, null, tint = colors.onTertiary, modifier = Modifier.size(22.dp))
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Сделать свою тему",
+                    color = if (isSelected) colors.onTertiaryContainer else colors.onSurface,
+                    fontFamily = font,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+                Text(
+                    "Полный редактор цветов, формы и миксов",
+                    color = if (isSelected) colors.onTertiaryContainer.copy(alpha = 0.76f) else colors.onSurfaceVariant,
+                    fontFamily = font,
+                    fontSize = 12.sp
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, null, tint = if (isSelected) colors.onTertiaryContainer else colors.primary, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun ThemeGridCard(
+    modifier: Modifier = Modifier,
+    entry: ThemeGridEntry,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val previewStart by animateColorAsState(
+        targetValue = entry.previewStart,
+        animationSpec = tween(220),
+        label = "themeCardPreviewStart"
+    )
+    val previewEnd by animateColorAsState(
+        targetValue = entry.previewEnd,
+        animationSpec = tween(220),
+        label = "themeCardPreviewEnd"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.02f else 1f,
+        animationSpec = tween(220),
+        label = "themeGridScale"
+    )
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) colors.secondaryContainer else colors.surfaceContainerHigh,
+        animationSpec = tween(220),
+        label = "themeGridContainer"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) colors.secondary else colors.outlineVariant,
+        animationSpec = tween(220),
+        label = "themeGridBorder"
+    )
+    Card(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            borderColor
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(76.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                previewStart.copy(alpha = 0.92f),
+                                lerp(previewStart, previewEnd, 0.45f).copy(alpha = 0.82f),
+                                previewEnd.copy(alpha = 0.94f)
+                            )
+                        )
+                    )
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp)
+                        .size(22.dp),
+                    shape = CircleShape,
+                    color = Color.White.copy(alpha = 0.18f)
+                ) {}
+                if (selected) {
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        null,
+                        tint = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .size(18.dp)
+                    )
+                }
+            }
+            Text(
+                entry.label,
+                color = if (selected) colors.onSecondaryContainer else colors.onSurface,
+                fontFamily = font,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                entry.swatches.take(4).forEach { swatch ->
+                    Surface(
+                        modifier = Modifier.size(14.dp),
+                        shape = CircleShape,
+                        color = swatch,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            colors.onSurface.copy(alpha = 0.08f)
+                        )
+                    ) {}
+                }
+            }
+            Text(
+                if (selected) "Активная тема" else "Основные цвета палитры",
+                color = if (selected) colors.onSecondaryContainer.copy(alpha = 0.76f) else colors.onSurfaceVariant,
+                fontFamily = font,
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+private fun AppTheme.settingsLabel(): String = when (this) {
+    AppTheme.BLOOMEE -> "Малиновый"
+    AppTheme.MATERIAL_YOU -> "Системные цвета"
+    AppTheme.DARK_BROWN -> "Шоколадный"
+    AppTheme.DARK_BLACK -> "Антрацитовый"
+    AppTheme.LIGHT -> "Молочный"
+    AppTheme.PURPLE -> "Аметистовый"
+    AppTheme.PINK -> "Пудровый"
+    AppTheme.OCEAN -> "Лазурный"
+    AppTheme.FOREST -> "Хвойно-зелёный"
+    AppTheme.SUNSET -> "Коралловый"
+    AppTheme.MIDNIGHT -> "Индиго"
+    AppTheme.NEON -> "Мятно-неоновый"
+    AppTheme.ROSE_GOLD -> "Розовое золото"
+    AppTheme.ARCTIC -> "Ледяной голубой"
+    AppTheme.AMBER -> "Янтарный"
+    AppTheme.EMERALD -> "Изумрудный"
+    AppTheme.AMOLED -> "Угольный"
+    AppTheme.LAVENDER -> "Лавандовый"
+    AppTheme.RUBY -> "Рубиновый"
+    AppTheme.STEEL -> "Стальной"
+    AppTheme.MATCHA -> "Фисташковый"
+    AppTheme.DESERT -> "Песочный"
+    AppTheme.COBALT -> "Кобальтовый"
+    AppTheme.CHERRY -> "Вишнёвый"
+    AppTheme.MOCHA -> "Кофейный"
+    AppTheme.AURORA -> "Мятно-бирюзовый"
+    AppTheme.COSMOS -> "Орхидейный"
+    AppTheme.SUNRISE -> "Абрикосовый"
+    AppTheme.GRAPHITE -> "Графитовый"
+    AppTheme.SAKURA -> "Нежно-розовый"
+    AppTheme.LAGOON -> "Аквамариновый"
+    AppTheme.VOLCANO -> "Терракотовый"
+    AppTheme.IVORY -> "Слоновая кость"
+    AppTheme.CITRUS -> "Лимонный"
+    AppTheme.FROST -> "Морозный циан"
+    AppTheme.EMBER -> "Медный"
+    AppTheme.TURQUOISE -> "Бирюзовый"
+    AppTheme.PLUM -> "Сливовый"
+    AppTheme.PEARL -> "Жемчужный"
+    AppTheme.OLIVE -> "Оливковый"
+    AppTheme.SAPPHIRE -> "Сапфировый"
+    AppTheme.MINT -> "Мятный"
+    AppTheme.BRONZE -> "Бронзовый"
+    AppTheme.WINE -> "Винный"
+    AppTheme.CUSTOM -> "Своя тема"
+}
+
+@Composable
+private fun SettingsHeroBanner(
+    themeLabel: String,
+    fontLabel: String,
+    interfaceLabel: String
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = colors.surfaceContainerLow,
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = colors.secondaryContainer
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Rounded.Tune,
+                            contentDescription = null,
+                            tint = colors.onSecondaryContainer,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Настройки", color = colors.onSurface, fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 21.sp)
+                    Text(
+                        "Тема, типографика, анимации и звук в едином Material 3 интерфейсе",
+                        color = colors.onSurfaceVariant,
+                        fontFamily = font,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingsInfoPill(
+                    icon = Icons.Rounded.Palette,
+                    label = "Тема",
+                    value = themeLabel,
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsInfoPill(
+                    icon = Icons.Rounded.DashboardCustomize,
+                    label = "Стиль UI",
+                    value = interfaceLabel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            SettingsInfoPill(
+                icon = Icons.Rounded.TextFields,
+                label = "Шрифт",
+                value = fontLabel,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = colors.surfaceContainerHighest
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        "Интерфейс приложения собран вокруг Material 3, а тема и шрифт настраиваются отдельно",
+                        color = colors.onSurfaceVariant,
+                        fontFamily = font,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsInfoPill(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = colors.surfaceContainerHighest
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(15.dp))
+                Text(label, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 11.sp)
+            }
+            Text(value, color = colors.onSurface, fontFamily = font, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SettingsQuickLinkCard(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    accent: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = colors.surfaceContainerLow,
+        tonalElevation = 1.dp,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(accent.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(colors.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = colors.onSurface, fontFamily = font, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 11.sp, lineHeight = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsSection(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun SettingsLeadingIcon(
+    icon: ImageVector,
+    tint: Color
+) {
+    Surface(
+        modifier = Modifier.size(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = tint.copy(alpha = 0.18f)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun SettingsLeadingIcon(
+    iconPainter: Painter,
+    tint: Color
+) {
+    Surface(
+        modifier = Modifier.size(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = tint.copy(alpha = 0.18f)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(iconPainter, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun SettingsChoiceRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = if (selected) colors.secondaryContainer else colors.surfaceContainerHighest
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = colors.primary,
+                    unselectedColor = colors.onSurfaceVariant
+                )
+            )
+            Text(
+                text = label,
+                color = if (selected) colors.onSecondaryContainer else colors.onSurface,
+                fontFamily = font,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                modifier = Modifier.padding(start = 6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsNavigationItem(
+    icon: ImageVector,
+    iconBg: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        headlineContent = {
+            Text(title, color = colors.onSurface, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        },
+        supportingContent = {
+            Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 12.sp, lineHeight = 16.sp)
+        },
+        leadingContent = { SettingsLeadingIcon(icon = icon, tint = iconBg) },
+        trailingContent = {
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    )
+}
+
+@Composable
+fun SettingsNavigationItem(
+    iconPainter: Painter,
+    iconBg: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        headlineContent = {
+            Text(title, color = colors.onSurface, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        },
+        supportingContent = {
+            Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 12.sp, lineHeight = 16.sp)
+        },
+        leadingContent = { SettingsLeadingIcon(iconPainter = iconPainter, tint = iconBg) },
+        trailingContent = {
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    )
+}
+
+@Composable
+fun SettingsSwitchItem(
+    icon: ImageVector,
+    iconBg: Color,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val headlineColor = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.5f)
+    val supportingColor = if (enabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.55f)
+    val iconTint = if (enabled) iconBg else iconBg.copy(alpha = 0.48f)
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        headlineContent = {
+            Text(title, color = headlineColor, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        },
+        supportingContent = {
+            Text(subtitle, color = supportingColor, fontFamily = font, fontSize = 12.sp, lineHeight = 16.sp)
+        },
+        leadingContent = { SettingsLeadingIcon(icon = icon, tint = iconTint) },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = colors.onPrimary,
+                    checkedTrackColor = colors.primary,
+                    uncheckedThumbColor = colors.surface,
+                    uncheckedTrackColor = colors.outlineVariant,
+                    uncheckedBorderColor = colors.outline
+                )
+            )
+        }
+    )
+}
+
+@Composable
+fun SettingsRepeatItem(settings: PlayerSettings, onRepeatChange: (RepeatMode) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val options = listOf(
+        RepeatMode.NONE to "Без повтора",
+        RepeatMode.ALL  to "Повторять всё",
+        RepeatMode.ONE  to "Повторять один трек"
+    )
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("Режим повтора", color = colors.onSurface, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        options.forEach { (mode, label) ->
+            SettingsChoiceRow(label = label, selected = settings.repeatMode == mode) {
+                onRepeatChange(mode)
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsSortItem(settings: PlayerSettings, onSortChange: (SortOrder) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    var expanded by remember { mutableStateOf(false) }
+    val options = listOf(
+        SortOrder.TITLE      to "По названию",
+        SortOrder.ARTIST     to "По исполнителю",
+        SortOrder.ALBUM      to "По альбому",
+        SortOrder.DURATION   to "По длительности",
+        SortOrder.DATE_ADDED to "По дате добавления"
+    )
+    val currentLabel = options.find { it.first == settings.sortOrder }?.second ?: "По названию"
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ListItem(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .clickable { expanded = !expanded },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            headlineContent = {
+                Text("Сортировка", color = colors.onSurface, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            },
+            supportingContent = {
+                Text(currentLabel, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 12.sp, lineHeight = 16.sp)
+            },
+            leadingContent = { SettingsLeadingIcon(icon = Icons.Rounded.Sort, tint = IconGreen) },
+            trailingContent = {
+                Icon(
+                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    null,
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        )
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(animationSpec = tween(280, easing = EaseOutCubic)) + fadeIn(tween(220)),
+            exit  = shrinkVertically(animationSpec = tween(220, easing = EaseInCubic))  + fadeOut(tween(180))
+        ) {
+            Column(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                options.forEach { (order, label) ->
+                    SettingsChoiceRow(label = label, selected = settings.sortOrder == order) {
+                        onSortChange(order)
+                        expanded = false
+                    }
+                }
+            }
+        }
+    }
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TypographyStudioDialog(
+    viewModel: MusicViewModel,
+    onDismiss: () -> Unit
+) {
+    val c = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val settings by viewModel.settings.collectAsState()
+    val presets = remember {
+        listOf(
+            TypographyStudioPreset("Air", "Чисто и просторно", Icons.Rounded.AutoAwesome, Color(0xFF64C3A3)) {
+                it.copy(
+                    trackListTitleSize = 15f,
+                    trackListArtistSize = 12f,
+                    letterSpacingEm = 0.01f,
+                    trackItemDensity = 2,
+                    trackItemPaddingScale = 1.12f,
+                    trackTitleWeightMode = 1,
+                    trackTitleAccentBlend = 0.08f,
+                    trackTitleDecorStyle = 1,
+                    trackMetaSeparatorStyle = 0,
+                    trackMetaCapsule = false,
+                    showAlbumInList = false,
+                    durationBadgeStyle = 0,
+                    textShadowEnabled = false
+                )
+            },
+            TypographyStudioPreset("Cinema", "Акцент и глубина", Icons.Rounded.Movie, Color(0xFFFF8A65)) {
+                it.copy(
+                    trackListTitleSize = 17f,
+                    trackListArtistSize = 12f,
+                    letterSpacingEm = 0.015f,
+                    lineHeightScale = 1.14f,
+                    trackItemDensity = 1,
+                    trackTitleWeightMode = 3,
+                    trackTitleAccentBlend = 0.34f,
+                    trackTitleDecorStyle = 3,
+                    trackMetaSeparatorStyle = 3,
+                    trackMetaCapsule = true,
+                    showAlbumInList = true,
+                    durationBadgeStyle = 2,
+                    nowPlayingGlowStrength = 1.08f,
+                    textShadowEnabled = true,
+                    textShadowIntensity = 0.56f
+                )
+            },
+            TypographyStudioPreset("Broadcast", "Жёсткий эфир", Icons.Rounded.Campaign, Color(0xFF5AB4FF)) {
+                it.copy(
+                    trackListTitleSize = 15f,
+                    trackListArtistSize = 11f,
+                    uppercaseTitles = true,
+                    trackMetaUppercase = true,
+                    letterSpacingEm = 0.08f,
+                    artistLetterSpacingEm = 0.05f,
+                    trackTitleWeightMode = 4,
+                    trackMetaWeightMode = 2,
+                    trackTitleAccentBlend = 0.42f,
+                    trackTitleDecorStyle = 2,
+                    trackMetaSeparatorStyle = 1,
+                    durationBadgeStyle = 1,
+                    showTrackNumber = true
+                )
+            },
+            TypographyStudioPreset("Capsule", "Стекло и метки", Icons.Rounded.Album, Color(0xFFCE93D8)) {
+                it.copy(
+                    trackListTitleSize = 16f,
+                    trackListArtistSize = 12f,
+                    trackItemCornerRadius = 18f,
+                    trackItemPaddingScale = 1.05f,
+                    trackTitleAccentBlend = 0.20f,
+                    trackTitleDecorStyle = 3,
+                    trackMetaSeparatorStyle = 0,
+                    trackMetaCapsule = true,
+                    durationBadgeStyle = 1,
+                    showAlbumInList = true
+                )
+            },
+            TypographyStudioPreset("Pulse", "Ярче для текущего трека", Icons.Rounded.Bolt, Color(0xFFFFD54F)) {
+                it.copy(
+                    trackListTitleSize = 16f,
+                    trackListArtistSize = 12f,
+                    boldTitles = true,
+                    trackTitleAccentBlend = 0.28f,
+                    trackTitleDecorStyle = 1,
+                    trackMetaSeparatorStyle = 2,
+                    nowPlayingGlowStrength = 1.24f,
+                    glowOnNowPlaying = true,
+                    durationBadgeStyle = 2,
+                    showAlbumInList = true
+                )
+            },
+            TypographyStudioPreset("Archive", "Каталоговый вид", Icons.Rounded.LibraryMusic, Color(0xFF90A4AE)) {
+                it.copy(
+                    trackListTitleSize = 14f,
+                    trackListArtistSize = 11f,
+                    trackItemDensity = 0,
+                    trackItemPaddingScale = 0.92f,
+                    trackTitleWeightMode = 2,
+                    trackMetaWeightMode = 1,
+                    trackTitleAccentBlend = 0.12f,
+                    trackTitleDecorStyle = 0,
+                    trackMetaSeparatorStyle = 1,
+                    showTrackNumber = true,
+                    showAlbumInList = true,
+                    durationBadgeStyle = 0,
+                    trackMetaCapsule = false
+                )
+            }
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = c.background
+        ) {
+            Scaffold(
+                containerColor = c.background,
+                topBar = {
+                    TopAppBar(
+                        modifier = Modifier.statusBarsPadding(),
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                        navigationIcon = {
+                            FilledIconButton(
+                                onClick = onDismiss,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = c.surfaceContainerLow,
+                                    contentColor = c.onSurface
+                                ),
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
+                            }
+                        },
+                        title = {
+                            Column {
+                                Text("Типографика", color = c.textPrimary, fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                Text("Фиксированное превью сверху и живые шаблоны", color = c.textSecondary, fontFamily = font, fontSize = 11.sp)
+                            }
+                        },
+                        actions = {
+                            FilledIconButton(
+                                onClick = {
+                                    viewModel.updateSettings(
+                                        settings.copy(
+                                            trackListTitleSize = 14f,
+                                            trackListArtistSize = 12f,
+                                            letterSpacingEm = 0f,
+                                            lineHeightScale = 1f,
+                                            boldTitles = false,
+                                            uppercaseTitles = false,
+                                            textShadowEnabled = false,
+                                            textShadowIntensity = 0.5f,
+                                            trackItemDensity = 1,
+                                            trackItemCornerRadius = 12f,
+                                            showTrackNumber = false,
+                                            showDurationInList = true,
+                                            showAlbumInList = false,
+                                            trackArtSize = 52f,
+                                            trackMetaOpacity = 0.78f,
+                                            artistLetterSpacingEm = 0f,
+                                            trackTextAlign = 0,
+                                            trackItemPaddingScale = 1f,
+                                            nowPlayingGlowStrength = 0.78f,
+                                            trackMetaCapsule = false,
+                                            trackTitleWeightMode = 2,
+                                            trackMetaWeightMode = 1,
+                                            trackTitleItalic = false,
+                                            trackTitleOpacity = 1f,
+                                            trackMetaUppercase = false,
+                                            trackMetaSpacingScale = 1f,
+                                            trackTitleTwoLines = false,
+                                            durationBadgeStyle = 0,
+                                            trackTitleAccentBlend = 0f,
+                                            trackTitleDecorStyle = 0,
+                                            trackMetaSeparatorStyle = 0
+                                        )
+                                    )
+                                },
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = c.primaryContainer,
+                                    contentColor = c.onPrimaryContainer
+                                ),
+                                modifier = Modifier.padding(end = 12.dp)
+                            ) {
+                                Icon(Icons.Rounded.RestartAlt, contentDescription = "Сбросить")
+                            }
+                        }
+                    )
+                }
+            ) { padding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TrackTypographyPreviewCard(settings = settings)
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item {
+                            TypographyControlSection("Шаблоны", "Один тап применяет целый красивый набор") {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(presets) { preset ->
+                                        TypographyPresetCard(preset = preset, onClick = { viewModel.updateSettings(preset.apply(settings)) })
+                                    }
+                                }
+                            }
+                        }
+                        item {
+                            TypographyControlSection("Размер и ритм", "Сделайте строку плотнее, выше или свободнее") {
+                                TypoSlider("Размер названия", "${settings.trackListTitleSize.toInt()} sp", settings.trackListTitleSize, 11f..24f, Icons.Rounded.Title) {
+                                    viewModel.updateSettings(settings.copy(trackListTitleSize = it))
+                                }
+                                TypoSlider("Размер метаданных", "${settings.trackListArtistSize.toInt()} sp", settings.trackListArtistSize, 9f..18f, Icons.Rounded.Person) {
+                                    viewModel.updateSettings(settings.copy(trackListArtistSize = it))
+                                }
+                                TypoSlider("Межбуквенный title", "${(settings.letterSpacingEm * 100).toInt()}%", settings.letterSpacingEm, -0.05f..0.16f, Icons.Rounded.SpaceBar) {
+                                    viewModel.updateSettings(settings.copy(letterSpacingEm = it))
+                                }
+                                TypoSlider("Межбуквенный meta", "${(settings.artistLetterSpacingEm * 100).toInt()}%", settings.artistLetterSpacingEm, -0.05f..0.16f, Icons.Rounded.SpaceBar) {
+                                    viewModel.updateSettings(settings.copy(artistLetterSpacingEm = it))
+                                }
+                                TypoSlider("Межстрочный ритм", "${(settings.lineHeightScale * 100).toInt()}%", settings.lineHeightScale, 0.85f..1.7f, Icons.Rounded.FormatLineSpacing) {
+                                    viewModel.updateSettings(settings.copy(lineHeightScale = it))
+                                }
+                                TypoSlider("Плотность карточки", "${(settings.trackItemPaddingScale * 100).toInt()}%", settings.trackItemPaddingScale, 0.82f..1.35f, Icons.Rounded.UnfoldMore) {
+                                    viewModel.updateSettings(settings.copy(trackItemPaddingScale = it))
+                                }
+                            }
+                        }
+                        item {
+                            TypographyControlSection("Акценты", "Украсьте title, glow и разделители") {
+                                TypoSlider("Акцент в title", "${(settings.trackTitleAccentBlend * 100).toInt()}%", settings.trackTitleAccentBlend, 0f..0.82f, Icons.Rounded.Palette) {
+                                    viewModel.updateSettings(settings.copy(trackTitleAccentBlend = it))
+                                }
+                                TypoSlider("Сила glow", "${(settings.nowPlayingGlowStrength * 100).toInt()}%", settings.nowPlayingGlowStrength, 0.18f..1.4f, Icons.Rounded.AutoAwesome) {
+                                    viewModel.updateSettings(settings.copy(nowPlayingGlowStrength = it))
+                                }
+                                TypoSlider("Прозрачность title", "${(settings.trackTitleOpacity * 100).toInt()}%", settings.trackTitleOpacity, 0.35f..1f, Icons.Rounded.Opacity) {
+                                    viewModel.updateSettings(settings.copy(trackTitleOpacity = it))
+                                }
+                                TypoSlider("Прозрачность meta", "${(settings.trackMetaOpacity * 100).toInt()}%", settings.trackMetaOpacity, 0.35f..1f, Icons.Rounded.Opacity) {
+                                    viewModel.updateSettings(settings.copy(trackMetaOpacity = it))
+                                }
+                                TypographyChoicePills("Декор title", Icons.Rounded.TextFields, listOf(0 to "Чисто", 1 to "Подчёрк", 2 to "Акцент", 3 to "Glass"), settings.trackTitleDecorStyle) {
+                                    viewModel.updateSettings(settings.copy(trackTitleDecorStyle = it))
+                                }
+                                TypographyChoicePills("Разделитель meta", Icons.Rounded.LinearScale, listOf(0 to "Точка", 1 to "Слэш", 2 to "Wave", 3 to "Spark"), settings.trackMetaSeparatorStyle) {
+                                    viewModel.updateSettings(settings.copy(trackMetaSeparatorStyle = it))
+                                }
+                            }
+                        }
+                        item {
+                            TypographyControlSection("Композиция", "Карточка, выравнивание и подача метаданных") {
+                                TypoSlider("Размер обложки", "${settings.trackArtSize.toInt()} dp", settings.trackArtSize, 36f..72f, Icons.Rounded.Album) {
+                                    viewModel.updateSettings(settings.copy(trackArtSize = it))
+                                }
+                                TypoSlider("Скругление", "${settings.trackItemCornerRadius.toInt()} dp", settings.trackItemCornerRadius, 6f..28f, Icons.Rounded.RoundedCorner) {
+                                    viewModel.updateSettings(settings.copy(trackItemCornerRadius = it))
+                                }
+                                TypoSlider("Интервал title/meta", "${(settings.trackMetaSpacingScale * 100).toInt()}%", settings.trackMetaSpacingScale, 0.7f..1.8f, Icons.Rounded.FormatLineSpacing) {
+                                    viewModel.updateSettings(settings.copy(trackMetaSpacingScale = it))
+                                }
+                                TypographyChoicePills("Выравнивание", Icons.Rounded.FormatAlignLeft, listOf(0 to "Слева", 1 to "Центр", 2 to "Справа"), settings.trackTextAlign) {
+                                    viewModel.updateSettings(settings.copy(trackTextAlign = it))
+                                }
+                                TypographyChoicePills("Вес title", Icons.Rounded.FormatBold, listOf(0 to "Reg", 1 to "Med", 2 to "Semi", 3 to "Bold", 4 to "Black"), settings.trackTitleWeightMode) {
+                                    viewModel.updateSettings(settings.copy(trackTitleWeightMode = it))
+                                }
+                                TypographyChoicePills("Вес meta", Icons.Rounded.Tune, listOf(0 to "Reg", 1 to "Med", 2 to "Semi", 3 to "Bold"), settings.trackMetaWeightMode) {
+                                    viewModel.updateSettings(settings.copy(trackMetaWeightMode = it))
+                                }
+                            }
+                        }
+                        item {
+                            TypographyControlSection("Отображение", "Показывать, прятать и стилизовать детали") {
+                                SettingsToggleRow("Две строки названия", "Длинные названия могут занимать 2 строки", settings.trackTitleTwoLines, Icons.Rounded.FormatAlignLeft, c.accent) {
+                                    viewModel.updateSettings(settings.copy(trackTitleTwoLines = it))
+                                }
+                                SettingsToggleRow("Жирные заголовки", "Лёгкий усилитель title", settings.boldTitles, Icons.Rounded.FormatBold, c.accentVar) {
+                                    viewModel.updateSettings(settings.copy(boldTitles = it))
+                                }
+                                SettingsToggleRow("Курсив title", "Наклон для названия трека", settings.trackTitleItalic, Icons.Rounded.FormatItalic, c.accentMuted) {
+                                    viewModel.updateSettings(settings.copy(trackTitleItalic = it))
+                                }
+                                SettingsToggleRow("Title CAPS", "Все названия прописными", settings.uppercaseTitles, Icons.Rounded.TextFields, c.accent) {
+                                    viewModel.updateSettings(settings.copy(uppercaseTitles = it))
+                                }
+                                SettingsToggleRow("Meta CAPS", "Артист и альбом прописными", settings.trackMetaUppercase, Icons.Rounded.TextFields, c.accentVar) {
+                                    viewModel.updateSettings(settings.copy(trackMetaUppercase = it))
+                                }
+                                SettingsToggleRow("Капсула meta", "Обрамление артиста и альбома", settings.trackMetaCapsule, Icons.Rounded.CropSquare, c.accentMuted) {
+                                    viewModel.updateSettings(settings.copy(trackMetaCapsule = it))
+                                }
+                                SettingsToggleRow("Показывать альбом", "Добавить альбом рядом с артистом", settings.showAlbumInList, Icons.Rounded.Album, c.accent) {
+                                    viewModel.updateSettings(settings.copy(showAlbumInList = it))
+                                }
+                                SettingsToggleRow("Показывать длительность", "Таймкод справа в строке", settings.showDurationInList, Icons.Rounded.Timer, c.accentVar) {
+                                    viewModel.updateSettings(settings.copy(showDurationInList = it))
+                                }
+                                SettingsToggleRow("Показывать номер", "Номер трека слева от обложки", settings.showTrackNumber, Icons.Rounded.Tag, c.accentMuted) {
+                                    viewModel.updateSettings(settings.copy(showTrackNumber = it))
+                                }
+                                SettingsToggleRow("Тень текста", "Дополнительная глубина под title", settings.textShadowEnabled, Icons.Rounded.Flare, c.accent) {
+                                    viewModel.updateSettings(settings.copy(textShadowEnabled = it))
+                                }
+                                if (settings.textShadowEnabled) {
+                                    TypoSlider("Сила тени", "${(settings.textShadowIntensity * 100).toInt()}%", settings.textShadowIntensity, 0.1f..1f, Icons.Rounded.BlurOn) {
+                                        viewModel.updateSettings(settings.copy(textShadowIntensity = it))
+                                    }
+                                }
+                                TypographyChoicePills("Стиль длительности", Icons.Rounded.Timer, listOf(0 to "Текст", 1 to "Капсула", 2 to "Акцент"), settings.durationBadgeStyle) {
+                                    viewModel.updateSettings(settings.copy(durationBadgeStyle = it))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackTypographyPreviewCard(
+    settings: PlayerSettings,
+    modifier: Modifier = Modifier
+) {
+    val c = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val titleWeight = when (settings.trackTitleWeightMode) {
+        0 -> FontWeight.Normal
+        1 -> FontWeight.Medium
+        3 -> FontWeight.Bold
+        4 -> FontWeight.Black
+        else -> FontWeight.SemiBold
+    }
+    val boostedTitleWeight = when {
+        settings.boldTitles && titleWeight == FontWeight.Normal -> FontWeight.Medium
+        settings.boldTitles && titleWeight == FontWeight.Medium -> FontWeight.SemiBold
+        settings.boldTitles && titleWeight == FontWeight.SemiBold -> FontWeight.Bold
+        settings.boldTitles && titleWeight == FontWeight.Bold -> FontWeight.ExtraBold
+        else -> titleWeight
+    }
+    val metaWeight = when (settings.trackMetaWeightMode) {
+        0 -> FontWeight.Normal
+        2 -> FontWeight.SemiBold
+        3 -> FontWeight.Bold
+        else -> FontWeight.Medium
+    }
+    val textAlign = when (settings.trackTextAlign) {
+        1 -> TextAlign.Center
+        2 -> TextAlign.End
+        else -> TextAlign.Start
+    }
+    val titleAccent = lerp(c.textPrimary, c.accent, settings.trackTitleAccentBlend.coerceIn(0f, 0.82f)).copy(alpha = settings.trackTitleOpacity.coerceIn(0.35f, 1f))
+    val metaSeparator = when (settings.trackMetaSeparatorStyle) {
+        1 -> " / "
+        2 -> " ~ "
+        3 -> " ✦ "
+        else -> " · "
+    }
+    val titleDecorShape = RoundedCornerShape(16.dp)
+    val titleDecorModifier = when (settings.trackTitleDecorStyle) {
+        2 -> Modifier.clip(titleDecorShape).background(c.accent.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 5.dp)
+        3 -> Modifier
+            .clip(titleDecorShape)
+            .background(Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.16f), c.bgElevated.copy(alpha = 0.94f), c.bgDeep.copy(alpha = 0.82f))))
+            .border(1.dp, c.accent.copy(alpha = 0.14f), titleDecorShape)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+        else -> Modifier
+    }
+    val contentAlignment = when (settings.trackTextAlign) {
+        1 -> Alignment.Center
+        2 -> Alignment.CenterEnd
+        else -> Alignment.CenterStart
+    }
+
+    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), color = c.bgCard) {
+        Column(
+            modifier = Modifier
+                .background(Brush.verticalGradient(listOf(c.bgSurface.copy(alpha = 0.94f), c.bgCard.copy(alpha = 0.96f), c.bgDeep.copy(alpha = 0.98f))))
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Живое превью списка", color = c.textPrimary, fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Верх не листается, чтобы вы сразу видели результат", color = c.textSecondary, fontFamily = font, fontSize = 11.sp)
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.accent.copy(alpha = 0.14f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text("NOW", color = c.accent, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(settings.trackItemCornerRadius.dp.coerceIn(14.dp, 26.dp)),
+                color = c.bgElevated.copy(alpha = 0.92f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = (12.dp * settings.trackItemPaddingScale.coerceIn(0.82f, 1.35f))),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(settings.trackArtSize.dp.coerceIn(36.dp, 70.dp))
+                            .clip(RoundedCornerShape(settings.trackItemCornerRadius.dp.coerceIn(12.dp, 24.dp)))
+                            .background(Brush.linearGradient(listOf(c.accent.copy(alpha = 0.82f), c.accentVar.copy(alpha = 0.78f)))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = c.bgDeep, modifier = Modifier.size((settings.trackArtSize * 0.45f).dp.coerceAtLeast(18.dp)))
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = when (settings.trackTextAlign) {
+                            1 -> Alignment.CenterHorizontally
+                            2 -> Alignment.End
+                            else -> Alignment.Start
+                        }
+                    ) {
+                        Box(modifier = titleDecorModifier.fillMaxWidth(), contentAlignment = contentAlignment) {
+                            Text(
+                                text = if (settings.uppercaseTitles) "MIDNIGHT CITY DRIVE" else "Midnight City Drive",
+                                color = titleAccent,
+                                fontFamily = font,
+                                fontSize = settings.trackListTitleSize.sp,
+                                fontWeight = boostedTitleWeight,
+                                fontStyle = if (settings.trackTitleItalic) FontStyle.Italic else FontStyle.Normal,
+                                letterSpacing = settings.letterSpacingEm.em,
+                                lineHeight = (settings.trackListTitleSize * settings.lineHeightScale * 1.35f).sp,
+                                textAlign = textAlign,
+                                maxLines = if (settings.trackTitleTwoLines) 2 else 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        if (settings.trackTitleDecorStyle == 1) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(contentAlignment)
+                                        .width(if (settings.trackTitleTwoLines) 56.dp else 42.dp)
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.14f), c.accent, c.accent.copy(alpha = 0.20f))))
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height((3.dp * settings.trackMetaSpacingScale.coerceIn(0.7f, 1.8f)).coerceIn(2.dp, 8.dp)))
+                        val meta = buildString {
+                            append("The Midnight")
+                            if (settings.showAlbumInList) {
+                                append(metaSeparator)
+                                append("Neon Avenue")
+                            }
+                        }
+                        val metaModifier = if (settings.trackMetaCapsule) {
+                            Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(c.accent.copy(alpha = 0.10f))
+                                .border(1.dp, c.accent.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
+                                .padding(horizontal = 9.dp, vertical = 4.dp)
+                        } else Modifier
+                        Text(
+                            text = if (settings.trackMetaUppercase) meta.uppercase() else meta,
+                            color = c.textSecondary.copy(alpha = settings.trackMetaOpacity.coerceIn(0.35f, 1f)),
+                            fontFamily = font,
+                            fontWeight = metaWeight,
+                            fontSize = settings.trackListArtistSize.sp,
+                            letterSpacing = settings.artistLetterSpacingEm.em,
+                            textAlign = textAlign,
+                            modifier = metaModifier
+                        )
+                    }
+
+                    if (settings.showDurationInList) {
+                        when (settings.durationBadgeStyle) {
+                            1, 2 -> Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (settings.durationBadgeStyle == 2) c.accent.copy(alpha = 0.16f) else c.bgDeep.copy(alpha = 0.52f))
+                                    .border(
+                                        1.dp,
+                                        if (settings.durationBadgeStyle == 2) c.accent.copy(alpha = 0.20f) else c.textPrimary.copy(alpha = 0.06f),
+                                        RoundedCornerShape(999.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("3:45", color = if (settings.durationBadgeStyle == 2) c.accent else c.textSecondary, fontFamily = font, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                            }
+                            else -> Text("3:45", color = c.textDisabled, fontFamily = font, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypographyControlSection(
+    title: String,
+    subtitle: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val c = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    Surface(shape = RoundedCornerShape(22.dp), color = c.bgCard) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = c.textPrimary, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = c.textSecondary, fontFamily = font, fontSize = 11.sp)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun TypographyPresetCard(
+    preset: TypographyStudioPreset,
+    onClick: () -> Unit
+) {
+    val c = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    Surface(shape = RoundedCornerShape(20.dp), color = preset.color.copy(alpha = 0.14f), modifier = Modifier.width(156.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(preset.color.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(preset.icon, contentDescription = null, tint = preset.color, modifier = Modifier.size(22.dp))
+            }
+            Text(preset.label, color = c.textPrimary, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(preset.subtitle, color = c.textSecondary, fontFamily = font, fontSize = 11.sp, maxLines = 2)
+        }
+    }
+}
+
+@Composable
+private fun TypographyChoicePills(
+    title: String,
+    icon: ImageVector,
+    options: List<Pair<Int, String>>,
+    selected: Int,
+    onSelect: (Int) -> Unit
+) {
+    val c = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = c.accent.copy(alpha = 0.9f), modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(title, color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(options) { option ->
+                val isSelected = option.first == selected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (isSelected) c.accent else c.bgSurface)
+                        .clickable { onSelect(option.first) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(option.second, color = if (isSelected) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Типографика и настройки текста
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+fun TypographySettingsSection(viewModel: MusicViewModel) {
+    val c        = MaterialTheme.colorScheme
+    val font     = LocalAppFontFamily.current
+    val settings by viewModel.settings.collectAsState()
+
+    // Категории настроек
+    var activeTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Плеер", "Список", "Стиль", "Отображение")
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+
+        // ── Заголовок ─────────────────────────────────────────────────────────
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(46.dp).clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF3A6B5C)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.FormatSize, null, tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Типографика", color = c.textPrimary, fontFamily = font, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Текст, размеры и стиль", color = c.textSecondary, fontFamily = font, fontSize = 12.sp)
+            }
+        }
+
+        // ── Мини-превью ───────────────────────────────────────────────────────
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(c.bgElevated)
+                .padding(horizontal = 16.dp, vertical = (14.dp * settings.trackItemPaddingScale.coerceIn(0.82f, 1.35f)))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Album art preview
+                Box(
+                    modifier = Modifier
+                        .size(settings.trackArtSize.dp.coerceIn(36.dp, 72.dp))
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(settings.trackItemCornerRadius.dp))
+                        .background(c.accent.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.MusicNote, null, tint = c.accent.copy(alpha = 0.7f), modifier = Modifier.size((settings.trackArtSize * 0.5f).dp.coerceIn(18.dp, 36.dp)))
+                }
+                val previewTextAlign = when (settings.trackTextAlign) {
+                    1 -> TextAlign.Center
+                    2 -> TextAlign.End
+                    else -> TextAlign.Start
+                }
+                val previewColumnAlignment = when (settings.trackTextAlign) {
+                    1 -> Alignment.CenterHorizontally
+                    2 -> Alignment.End
+                    else -> Alignment.Start
+                }
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = previewColumnAlignment
+                ) {
+                    val titleWeight = when (settings.trackTitleWeightMode) {
+                        0 -> FontWeight.Normal
+                        1 -> FontWeight.Medium
+                        3 -> FontWeight.Bold
+                        4 -> FontWeight.Black
+                        else -> FontWeight.SemiBold
+                    }
+                    val previewTitleWeight = when {
+                        settings.boldTitles && titleWeight == FontWeight.Normal -> FontWeight.Medium
+                        settings.boldTitles && titleWeight == FontWeight.Medium -> FontWeight.SemiBold
+                        settings.boldTitles && titleWeight == FontWeight.SemiBold -> FontWeight.Bold
+                        settings.boldTitles && titleWeight == FontWeight.Bold -> FontWeight.ExtraBold
+                        else -> titleWeight
+                    }
+                    val titleText   = if (settings.uppercaseTitles) "ON THE FLOOR TONIGHT" else "On The Floor Tonight"
+                    Text(
+                        titleText,
+                        color = c.textPrimary.copy(alpha = settings.trackTitleOpacity.coerceIn(0.35f, 1f)),
+                        fontFamily = font,
+                        fontSize = settings.trackListTitleSize.sp,
+                        fontWeight = previewTitleWeight,
+                        fontStyle = if (settings.trackTitleItalic) FontStyle.Italic else FontStyle.Normal,
+                        letterSpacing = settings.letterSpacingEm.em,
+                        lineHeight = (settings.trackListTitleSize * settings.lineHeightScale * 1.4f).sp,
+                        textAlign = previewTextAlign,
+                        maxLines = if (settings.trackTitleTwoLines) 2 else 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height((2.dp * settings.trackMetaSpacingScale.coerceIn(0.7f, 1.8f)).coerceAtLeast(2.dp)))
+                    val metaTextBase = buildString {
+                        append("Jennifer Lopez")
+                        if (settings.showAlbumInList) append("  ·  J Lo")
+                    }
+                    val metaText = if (settings.trackMetaUppercase) metaTextBase.uppercase() else metaTextBase
+                    val metaColor = when(settings.artistNameStyle) {
+                        2 -> c.textDisabled
+                        else -> c.textSecondary.copy(alpha = settings.trackMetaOpacity.coerceIn(0.35f, 1f))
+                    }
+                    val metaWeight = when (settings.trackMetaWeightMode) {
+                        0 -> FontWeight.Normal
+                        2 -> FontWeight.SemiBold
+                        3 -> FontWeight.Bold
+                        else -> FontWeight.Medium
+                    }
+                    val metaModifier = if (settings.trackMetaCapsule) {
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(c.accent.copy(alpha = 0.10f))
+                            .border(1.dp, c.accent.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    } else Modifier
+                    Text(
+                        metaText,
+                        color = metaColor,
+                        fontFamily = font,
+                        fontWeight = metaWeight,
+                        fontSize = settings.trackListArtistSize.sp,
+                        fontStyle = if (settings.artistNameStyle == 1) FontStyle.Italic else FontStyle.Normal,
+                        letterSpacing = settings.artistLetterSpacingEm.em,
+                        textAlign = previewTextAlign,
+                        modifier = metaModifier
+                    )
+                    if (settings.showDurationInList) {
+                        Spacer(Modifier.height(2.dp))
+                        when (settings.durationBadgeStyle) {
+                            1, 2 -> Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(
+                                        if (settings.durationBadgeStyle == 2) c.accent.copy(alpha = 0.16f)
+                                        else c.bgDeep.copy(alpha = 0.52f)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (settings.durationBadgeStyle == 2) c.accent.copy(alpha = 0.22f)
+                                        else c.textPrimary.copy(alpha = 0.08f),
+                                        RoundedCornerShape(999.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("3:45", color = if (settings.durationBadgeStyle == 2) c.accent else c.textSecondary, fontFamily = font, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                            }
+                            else -> Text("3:45", color = c.accent.copy(alpha = 0.6f + settings.nowPlayingGlowStrength.coerceIn(0.18f, 1.4f) * 0.22f), fontFamily = font, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // ── Табы ──────────────────────────────────────────────────────────────
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(tabs) { tab ->
+                val i = tabs.indexOf(tab)
+                val sel = activeTab == i
+                Box(
+                    Modifier.clip(RoundedCornerShape(20.dp))
+                        .background(if (sel) c.accent else c.bgCard)
+                        .clickable { activeTab = i }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(tab, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 12.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // ── Содержимое таба ───────────────────────────────────────────────────
+        AnimatedContent(
+            targetState = activeTab,
+            transitionSpec = {
+                if (targetState > initialState)
+                    com.musicplayer.ui.navigation.AnimationsApplier.tabEnterFromRight(settings.tabSwitchAnim, settings.animParams)
+                        .togetherWith(com.musicplayer.ui.navigation.AnimationsApplier.tabExitToLeft(settings.tabSwitchAnim, settings.animParams))
+                else
+                    com.musicplayer.ui.navigation.AnimationsApplier.tabEnterFromLeft(settings.tabSwitchAnim, settings.animParams)
+                        .togetherWith(com.musicplayer.ui.navigation.AnimationsApplier.tabExitToRight(settings.tabSwitchAnim, settings.animParams))
+            },
+            label = "typographyTab"
+        ) { tab ->
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(c.bgElevated)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                when (tab) {
+                    // ──── Таб 0: Плеер ────────────────────────────────────────
+                    0 -> {
+                        TypoSlider("Заголовок трека", "${settings.playerTitleSize.toInt()} sp", settings.playerTitleSize, 14f..36f, Icons.Rounded.Title) {
+                            viewModel.updateSettings(settings.copy(playerTitleSize = it))
+                        }
+                        TypoSlider("Имя исполнителя", "${settings.playerArtistSize.toInt()} sp", settings.playerArtistSize, 10f..24f, Icons.Rounded.Person) {
+                            viewModel.updateSettings(settings.copy(playerArtistSize = it))
+                        }
+                        TypoSlider("Таймкод", "${settings.playerTimeSize.toInt()} sp", settings.playerTimeSize, 9f..18f, Icons.Rounded.AccessTime) {
+                            viewModel.updateSettings(settings.copy(playerTimeSize = it))
+                        }
+                    }
+
+                    // ──── Таб 1: Список ───────────────────────────────────────
+                    1 -> {
+                        TypoSlider("Заголовок трека", "${settings.trackListTitleSize.toInt()} sp", settings.trackListTitleSize, 10f..24f, Icons.Rounded.Title) {
+                            viewModel.updateSettings(settings.copy(trackListTitleSize = it))
+                        }
+                        TypoSlider("Имя исполнителя", "${settings.trackListArtistSize.toInt()} sp", settings.trackListArtistSize, 9f..20f, Icons.Rounded.Person) {
+                            viewModel.updateSettings(settings.copy(trackListArtistSize = it))
+                        }
+
+                        // Плотность строк
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.FormatListBulleted, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Плотность списка", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Компактно", "Обычно", "Просторно").forEachIndexed { i, label ->
+                                    val sel = settings.trackItemDensity == i
+                                    Box(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .background(if (sel) c.accent else c.bgCard)
+                                            .clickable { viewModel.updateSettings(settings.copy(trackItemDensity = i)) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Скругление карточки
+                        TypoSlider("Скругление карточки", "${settings.trackItemCornerRadius.toInt()} dp", settings.trackItemCornerRadius, 0f..28f, Icons.Rounded.RoundedCorner) {
+                            viewModel.updateSettings(settings.copy(trackItemCornerRadius = it))
+                        }
+                        TypoSlider("Размер обложки", "${settings.trackArtSize.toInt()} dp", settings.trackArtSize, 36f..72f, Icons.Rounded.Album) {
+                            viewModel.updateSettings(settings.copy(trackArtSize = it))
+                        }
+                        TypoSlider("Внутренние отступы", "${(settings.trackItemPaddingScale * 100).toInt()}%", settings.trackItemPaddingScale, 0.82f..1.35f, Icons.Rounded.UnfoldMore) {
+                            viewModel.updateSettings(settings.copy(trackItemPaddingScale = it))
+                        }
+                    }
+
+                    // ──── Таб 2: Стиль ────────────────────────────────────────
+                    2 -> {
+                        TypoSlider("Межбуквенный интервал", "${(settings.letterSpacingEm * 100).toInt()}%", settings.letterSpacingEm, -0.05f..0.2f, Icons.Rounded.SpaceBar) {
+                            viewModel.updateSettings(settings.copy(letterSpacingEm = it))
+                        }
+                        TypoSlider("Межстрочный интервал", "${(settings.lineHeightScale * 100).toInt()}%", settings.lineHeightScale, 0.8f..1.8f, Icons.Rounded.FormatLineSpacing) {
+                            viewModel.updateSettings(settings.copy(lineHeightScale = it))
+                        }
+                        TypoSlider("Прозрачность метаданных", "${(settings.trackMetaOpacity * 100).toInt()}%", settings.trackMetaOpacity, 0.35f..1f, Icons.Rounded.Opacity) {
+                            viewModel.updateSettings(settings.copy(trackMetaOpacity = it))
+                        }
+                        TypoSlider("Прозрачность заголовка", "${(settings.trackTitleOpacity * 100).toInt()}%", settings.trackTitleOpacity, 0.35f..1f, Icons.Rounded.Opacity) {
+                            viewModel.updateSettings(settings.copy(trackTitleOpacity = it))
+                        }
+                        TypoSlider("Межбуквенный артиста", "${(settings.artistLetterSpacingEm * 100).toInt()}%", settings.artistLetterSpacingEm, -0.05f..0.18f, Icons.Rounded.SpaceBar) {
+                            viewModel.updateSettings(settings.copy(artistLetterSpacingEm = it))
+                        }
+                        TypoSlider("Интервал title/meta", "${(settings.trackMetaSpacingScale * 100).toInt()}%", settings.trackMetaSpacingScale, 0.7f..1.8f, Icons.Rounded.FormatLineSpacing) {
+                            viewModel.updateSettings(settings.copy(trackMetaSpacingScale = it))
+                        }
+
+                        SettingsToggleRow("Жирные заголовки", "Усиленное начертание для треков", settings.boldTitles, Icons.Rounded.FormatBold, c.accent) {
+                            viewModel.updateSettings(settings.copy(boldTitles = it))
+                        }
+                        SettingsToggleRow("ПРОПИСНЫЕ БУКВЫ", "Заглавные буквы в заголовках", settings.uppercaseTitles, Icons.Rounded.TextFormat, c.accentVar) {
+                            viewModel.updateSettings(settings.copy(uppercaseTitles = it))
+                        }
+                        SettingsToggleRow("Курсив заголовка", "Лёгкий наклон для названия трека", settings.trackTitleItalic, Icons.Rounded.FormatItalic, c.accentVar) {
+                            viewModel.updateSettings(settings.copy(trackTitleItalic = it))
+                        }
+                        SettingsToggleRow("ПРОПИСНЫЕ МЕТАДАННЫЕ", "Артист и альбом прописными", settings.trackMetaUppercase, Icons.Rounded.TextFormat, c.accentMuted) {
+                            viewModel.updateSettings(settings.copy(trackMetaUppercase = it))
+                        }
+                        SettingsToggleRow("Тень текста", "Лёгкое свечение под текстом", settings.textShadowEnabled, Icons.Rounded.Flare, c.accentMuted) {
+                            viewModel.updateSettings(settings.copy(textShadowEnabled = it))
+                        }
+                        if (settings.textShadowEnabled) {
+                            TypoSlider("Интенсивность тени", "${(settings.textShadowIntensity * 100).toInt()}%", settings.textShadowIntensity, 0.1f..1f, Icons.Rounded.Opacity) {
+                                viewModel.updateSettings(settings.copy(textShadowIntensity = it))
+                            }
+                        }
+
+                        // Стиль имени исполнителя
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Person, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Стиль исполнителя", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Обычный", "Курсив", "Заглушён").forEachIndexed { i, label ->
+                                    val sel = settings.artistNameStyle == i
+                                    Box(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .background(if (sel) c.accentVar else c.bgCard)
+                                            .clickable { viewModel.updateSettings(settings.copy(artistNameStyle = i)) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.FormatBold, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Вес заголовка", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Reg", "Med", "Semi", "Bold", "Black").forEachIndexed { i, label ->
+                                    val sel = settings.trackTitleWeightMode == i
+                                    Box(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .background(if (sel) c.accent else c.bgCard)
+                                            .clickable { viewModel.updateSettings(settings.copy(trackTitleWeightMode = i)) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 10.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Tune, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Вес метаданных", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Reg", "Med", "Semi", "Bold").forEachIndexed { i, label ->
+                                    val sel = settings.trackMetaWeightMode == i
+                                    Box(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .background(if (sel) c.accentVar else c.bgCard)
+                                            .clickable { viewModel.updateSettings(settings.copy(trackMetaWeightMode = i)) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 10.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.FormatAlignLeft, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Выравнивание текста", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Слева", "Центр", "Справа").forEachIndexed { i, label ->
+                                    val sel = settings.trackTextAlign == i
+                                    Box(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .background(if (sel) c.accent else c.bgCard)
+                                            .clickable { viewModel.updateSettings(settings.copy(trackTextAlign = i)) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        }
+                        SettingsToggleRow("Капсула метаданных", "Артист и альбом в мягкой стеклянной капсуле", settings.trackMetaCapsule, Icons.Rounded.CropSquare, c.accentVar) {
+                            viewModel.updateSettings(settings.copy(trackMetaCapsule = it))
+                        }
+                    }
+
+                    // ──── Таб 3: Отображение ──────────────────────────────────
+                    3 -> {
+                        SettingsToggleRow("Подсветка текущего трека", "Акцентная подсветка активной строки", settings.glowOnNowPlaying, Icons.Rounded.Highlight, c.accent) {
+                            viewModel.updateSettings(settings.copy(glowOnNowPlaying = it))
+                        }
+                        SettingsToggleRow("Две строки названия", "Длинные треки могут занимать 2 строки", settings.trackTitleTwoLines, Icons.Rounded.FormatAlignLeft, c.accentVar) {
+                            viewModel.updateSettings(settings.copy(trackTitleTwoLines = it))
+                        }
+                        if (settings.glowOnNowPlaying) {
+                            TypoSlider("Сила подсветки", "${(settings.nowPlayingGlowStrength * 100).toInt()}%", settings.nowPlayingGlowStrength, 0.18f..1.4f, Icons.Rounded.Highlight) {
+                                viewModel.updateSettings(settings.copy(nowPlayingGlowStrength = it))
+                            }
+                        }
+                        SettingsToggleRow("Порядковый номер", "Показывать № трека в списке", settings.showTrackNumber, Icons.Rounded.Tag, c.accentVar) {
+                            viewModel.updateSettings(settings.copy(showTrackNumber = it))
+                        }
+                        SettingsToggleRow("Длительность в списке", "Показывать время трека справа", settings.showDurationInList, Icons.Rounded.Timer, c.accentMuted) {
+                            viewModel.updateSettings(settings.copy(showDurationInList = it))
+                        }
+                        SettingsToggleRow("Битрейт в списке", "Показывать качество файла (kbps)", settings.showBitrateInList, Icons.Rounded.HighQuality, c.textSecondary) {
+                            viewModel.updateSettings(settings.copy(showBitrateInList = it))
+                        }
+                        SettingsToggleRow("Альбом в списке", "Показывать название альбома рядом с исполнителем", settings.showAlbumInList, Icons.Rounded.Album, c.accentVar) {
+                            viewModel.updateSettings(settings.copy(showAlbumInList = it))
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Timer, null, tint = c.accent.copy(0.9f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Стиль длительности", color = c.textPrimary, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Текст", "Капсула", "Акцент").forEachIndexed { i, label ->
+                                    val sel = settings.durationBadgeStyle == i
+                                    Box(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .background(if (sel) c.accentMuted else c.bgCard)
+                                            .clickable { viewModel.updateSettings(settings.copy(durationBadgeStyle = i)) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = if (sel) c.bgDeep else c.textSecondary, fontFamily = font, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+// ── Слайдер типографики ───────────────────────────────────────────────────────
+@Composable
+private fun TypoSlider(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    icon: ImageVector,
+    onValueChange: (Float) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = colors.surfaceContainerHigh
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = colors.primary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, color = colors.onSurface, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(valueLabel, color = colors.primary, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = value, onValueChange = onValueChange, valueRange = range,
+                modifier = Modifier.fillMaxWidth().height(28.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = colors.primary,
+                    activeTrackColor = colors.primary,
+                    inactiveTrackColor = colors.surfaceVariant
+                )
+            )
+        }
+    }
+}
+
+private fun String.containsAny(vararg values: String): Boolean =
+    values.any { contains(it, ignoreCase = true) }
