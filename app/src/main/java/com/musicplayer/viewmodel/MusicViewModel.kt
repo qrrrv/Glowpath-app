@@ -1104,6 +1104,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             scheduleNextTransition(song)
         } catch (e: Exception) {
             e.printStackTrace()
+            // Раньше ошибка молча проглатывалась: трек «не включался», плеер не открывался, и было непонятно почему
+            val reason = if (e is SecurityException) {
+                "нет доступа к файлу. Разреши «Музыка и аудио» в настройках приложения"
+            } else {
+                "${e.javaClass.simpleName}: ${e.message ?: "неизвестная ошибка"}"
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    "Не удалось включить трек: $reason",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 

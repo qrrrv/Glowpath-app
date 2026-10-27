@@ -315,6 +315,22 @@ fun HomeScreen(
         }
     }
 
+    // Если доступа к музыке нет (например, после переустановки), запрашиваем его сами —
+    // иначе треки не играют, а обложки не грузятся. Без автосканирования библиотеки.
+    val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    var askedAudioPermission by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (askedAudioPermission) return@LaunchedEffect
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, permission)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            askedAudioPermission = true
+            audioPermissionLauncher.launch(permission)
+        }
+    }
+
     // Держим ссылку на «запуск удаления», чтобы повторить его после системного подтверждения (Android 10)
     val deviceDeleteStarter = remember { arrayOfNulls<(List<Song>) -> Unit>(1) }
 
