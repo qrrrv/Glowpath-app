@@ -1,6 +1,8 @@
 package com.musicplayer.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.widget.Toast
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -77,7 +79,11 @@ import com.musicplayer.ui.components.isBoomingDeleteStyle
 import com.musicplayer.viewmodel.MusicViewModel
 import com.airbnb.lottie.LottieProperty
 import com.airbnb.lottie.compose.*
+import androidx.compose.ui.platform.LocalContext
+import com.musicplayer.utils.DeviceFileDeleter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlin.math.*
 
@@ -224,7 +230,8 @@ fun HomeScreen(
     var showMenu        by remember { mutableStateOf(false) }
     var searchQuery     by rememberSaveable { mutableStateOf("") }
     var isSearching     by rememberSaveable { mutableStateOf(false) }
-    var songToDelete    by remember { mutableStateOf<Song?>(null) }
+    var songsToDelete   by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var pendingDeviceDelete by remember { mutableStateOf<List<Song>>(emptyList()) }
     var deletingIds     by remember { mutableStateOf(setOf<Long>()) }
     var selectedIds     by remember { mutableStateOf(setOf<Long>()) }
     val isSelectionMode = selectedIds.isNotEmpty()
@@ -290,6 +297,65 @@ fun HomeScreen(
         uri?.let { viewModel.addSongFromUri(it) }
     }
 
+    // ── Удаление трека: из списка + сам файл с устройства ─────────────────────
+    val context = LocalContext.current
+
+    // Убирает треки из списка (с анимацией удаления, как и раньше)
+    val removeFromList: (List<Song>) -> Unit = { toDelete ->
+        val ids = toDelete.map { it.id }.toSet()
+        if (isBoomingDeleteStyle(settings.trackDeleteAnimStyle)) {
+            toDelete.forEach { viewModel.removeSong(it) }
+        } else {
+            deletingIds = deletingIds + ids
+            scope.launch {
+                delay(deleteAnimDurationMs.toLong() + 60L)
+                toDelete.forEach { viewModel.removeSong(it) }
+                deletingIds = deletingIds - ids
+            }
+        }
+    }
+
+    // Держим ссылку на «запуск удаления», чтобы повторить его после системного подтверждения (Android 10)
+    val deviceDeleteStarter = remember { arrayOfNulls<(List<Song>) -> Unit>(1) }
+
+    val deviceDeleteConfirmLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val songsInFlight = pendingDeviceDelete
+        pendingDeviceDelete = emptyList()
+        when {
+            songsInFlight.isEmpty() -> Unit
+            result.resultCode != Activity.RESULT_OK ->
+                Toast.makeText(context, "Удаление отменено, трек остался на месте", Toast.LENGTH_SHORT).show()
+            // Android 11+: система уже удалила файлы после подтверждения
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> removeFromList(songsInFlight)
+            // Android 10: доступ выдан на один файл — повторяем удаление для остальных
+            else -> deviceDeleteStarter[0]?.invoke(songsInFlight)
+        }
+    }
+
+    deviceDeleteStarter[0] = { toDelete ->
+        scope.launch {
+            val step = withContext(Dispatchers.IO) { DeviceFileDeleter.delete(context, toDelete) }
+            when (step) {
+                is DeviceFileDeleter.Step.NeedsConfirmation -> {
+                    pendingDeviceDelete = toDelete
+                    deviceDeleteConfirmLauncher.launch(step.request)
+                }
+                is DeviceFileDeleter.Step.Finished -> {
+                    if (step.failed > 0) {
+                        Toast.makeText(
+                            context,
+                            "Не удалось удалить с устройства файлов: ${step.failed}. Из списка они убраны",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    removeFromList(toDelete)
+                }
+            }
+        }
+    }
+
     // Поиск (см. SongSearch.kt): ищем по тому, что реально видно в списке (переименованные
     // названия/исполнители) и по оригинальным тегам; результаты — по релевантности.
     val searchIndex = remember(sortedSongs, customTitleMap, customArtistMap) {
@@ -346,18 +412,7 @@ fun HomeScreen(
                     onSelectAll      = { selectedIds = filteredSongs.map { it.id }.toSet() },
                     onDeleteSelected = {
                         val toDeleteIds = selectedIds.toSet()
-                        val toDelete = songs.filter { it.id in toDeleteIds }
-                        selectedIds = emptySet()
-                        if (isBoomingDeleteStyle(settings.trackDeleteAnimStyle)) {
-                            toDelete.forEach { viewModel.removeSong(it) }
-                        } else {
-                            deletingIds = deletingIds + toDeleteIds
-                            scope.launch {
-                                delay(deleteAnimDurationMs.toLong() + 60L)
-                                toDelete.forEach { viewModel.removeSong(it) }
-                                deletingIds = deletingIds - toDeleteIds
-                            }
-                        }
+                        songsToDelete = songs.filter { it.id in toDeleteIds }
                     },
                     showMenu         = showMenu,
                     onMenuToggle     = { showMenu = !showMenu },
@@ -541,26 +596,37 @@ fun HomeScreen(
         }
     }
 
-    songToDelete?.let { song ->
+    if (songsToDelete.isNotEmpty()) {
+        val single = songsToDelete.singleOrNull()
         AlertDialog(
-            onDismissRequest = { songToDelete = null },
+            onDismissRequest = { songsToDelete = emptyList() },
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text("Удалить трек?", color = MaterialTheme.colorScheme.onSurface, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.Bold) },
-            text  = { Text("«${song.title}» будет удален из списка", color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = LocalAppFontFamily.current) },
+            title = {
+                Text(
+                    if (single != null) "Удалить трек?" else "Удалить треки (${songsToDelete.size})?",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = LocalAppFontFamily.current,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    if (single != null) {
+                        "«${single.title}» будет удалён из списка и с устройства. Это действие нельзя отменить."
+                    } else {
+                        "Выбранные треки (${songsToDelete.size}) будут удалены из списка и с устройства. Это действие нельзя отменить."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = LocalAppFontFamily.current
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (isBoomingDeleteStyle(settings.trackDeleteAnimStyle)) {
-                            viewModel.removeSong(song)
-                        } else {
-                            deletingIds += song.id
-                            scope.launch {
-                                delay(deleteAnimDurationMs.toLong() + 40L)
-                                viewModel.removeSong(song)
-                                deletingIds -= song.id
-                            }
-                        }
-                        songToDelete = null
+                        val toDelete = songsToDelete
+                        songsToDelete = emptyList()
+                        selectedIds = emptySet()
+                        deviceDeleteStarter[0]?.invoke(toDelete)
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -570,7 +636,7 @@ fun HomeScreen(
                 ) { Text("Удалить", fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold) }
             },
             dismissButton = {
-                TextButton(onClick = { songToDelete = null }) {
+                TextButton(onClick = { songsToDelete = emptyList() }) {
                     Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = LocalAppFontFamily.current)
                 }
             }
