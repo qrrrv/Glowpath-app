@@ -39,6 +39,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.window.DialogProperties
 import com.musicplayer.R
 import androidx.compose.ui.text.font.FontWeight
@@ -196,12 +200,12 @@ fun SettingsScreen(
                         }
                     }
                 },
-                shape = RoundedCornerShape(24.dp),
+                shape = CircleShape,
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                    focusedBorderColor = Color.Transparent
                 )
             )
 
@@ -228,7 +232,6 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Персонализация",
-                subtitle = "Тема, шрифт, типографика и верхняя панель",
                 visible = settingsQuery.isBlank()
             ) {
                 SettingsNavigationItem(
@@ -266,7 +269,6 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Движение и атмосфера",
-                subtitle = "Анимации, переходы и фоновые эффекты",
                 visible = settingsQuery.isBlank()
             ) {
                 SettingsNavigationItem(
@@ -288,7 +290,6 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Воспроизведение",
-                subtitle = "Поведение плеера, сортировка и звук",
                 visible = settingsQuery.isBlank()
             ) {
                 SettingsSwitchItem(
@@ -371,7 +372,6 @@ fun SettingsScreen(
 
             SettingsSectionBlock(
                 title = "Сервис и информация",
-                subtitle = "Статистика и сведения о приложении",
                 visible = settingsQuery.isBlank()
             ) {
                 SettingsNavigationItem(
@@ -653,7 +653,10 @@ private fun SettingsSearchResults(
             color = colors.primary,
             fontFamily = LocalAppFontFamily.current,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .semantics { heading() }
         )
         if (matches.isEmpty()) {
             Text(
@@ -664,14 +667,16 @@ private fun SettingsSearchResults(
                 modifier = Modifier.padding(vertical = 12.dp)
             )
         } else {
-            matches.forEach { (entry, action) ->
-                SettingsNavigationItem(
-                    icon = entry.third,
-                    iconBg = colors.primary,
-                    title = entry.first,
-                    subtitle = entry.second,
-                    onClick = action
-                )
+            SettingsSection {
+                matches.forEach { (entry, action) ->
+                    SettingsNavigationItem(
+                        icon = entry.third,
+                        iconBg = colors.primary,
+                        title = entry.first,
+                        subtitle = entry.second,
+                        onClick = action
+                    )
+                }
             }
         }
     }
@@ -680,41 +685,32 @@ private fun SettingsSearchResults(
 @Composable
 private fun SettingsSectionBlock(
     title: String,
-    subtitle: String,
     visible: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
     if (!visible) return
+    // Android 16 / Material 3 Expressive: маленький заголовок группы + сгруппированный список
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(
-            modifier = Modifier.padding(horizontal = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = title,
-                color = colors.primary,
-                fontFamily = font,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = subtitle,
-                color = colors.onSurfaceVariant,
-                fontFamily = font,
-                fontSize = 13.sp,
-                lineHeight = 17.sp
-            )
-        }
+        Text(
+            text = title,
+            color = colors.primary,
+            fontFamily = font,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.1.sp,
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .semantics { heading() }
+        )
         SettingsSection(content = content)
     }
 }
 
+/** Пункты в группе уже разделены зазором — отдельный разделитель не нужен. */
 @Composable
-private fun SettingsGroupDivider() {
-    Spacer(Modifier.height(2.dp))
-}
+private fun SettingsGroupDivider() = Unit
 
 @Composable
 fun ThemePickerDialog(
@@ -1572,35 +1568,56 @@ private fun SettingsQuickLinkCard(
     }
 }
 
+/** Крупное скругление внешних углов группы и маленькое — между пунктами (как в настройках Android 16). */
+private val SettingsGroupShape = RoundedCornerShape(28.dp)
+private val SettingsItemShape = RoundedCornerShape(4.dp)
+
 @Composable
 fun SettingsSection(content: @Composable ColumnScope.() -> Unit) {
+    // Внешний clip даёт большие углы у первого и последнего пункта,
+    // а зазор 2dp + маленькое скругление пунктов — «разрезы» между ними.
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(SettingsGroupShape),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
         content = content
     )
 }
 
+/** Подбирает тональную пару «контейнер / иконка» по роли цвета, переданного пункту. */
 @Composable
-private fun SettingsLeadingIcon(
-    icon: ImageVector,
-    tint: Color
-) {
-    // Круглая «пастельная» иконка-контейнер как в Material 3: плотный светлый фон,
-    // полученный осветлением цвета темы, и тёмная иконка того же оттенка
+private fun settingsIconColors(tint: Color, enabled: Boolean): Pair<Color, Color> {
+    val c = MaterialTheme.colorScheme
     val solid = tint.copy(alpha = 1f)
-    val pastel = lerp(solid, Color.White, 0.60f)
-    val iconTint = lerp(solid, Color.Black, 0.55f)
+    val (container, content) = when (solid) {
+        c.primary -> c.primaryContainer to c.onPrimaryContainer
+        c.secondary -> c.secondaryContainer to c.onSecondaryContainer
+        c.tertiary -> c.tertiaryContainer to c.onTertiaryContainer
+        c.error -> c.errorContainer to c.onErrorContainer
+        else -> lerp(c.surfaceContainerHighest, solid, 0.25f) to solid
+    }
+    return if (enabled) container to content
+    else container.copy(alpha = 0.38f) to content.copy(alpha = 0.38f)
+}
+
+@Composable
+internal fun SettingsLeadingIcon(
+    icon: ImageVector,
+    tint: Color,
+    enabled: Boolean = true
+) {
+    val (container, content) = settingsIconColors(tint, enabled)
     Surface(
-        modifier = Modifier.size(56.dp),
+        modifier = Modifier.size(40.dp),
         shape = CircleShape,
-        color = pastel
+        color = container
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(26.dp))
+            Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -1608,22 +1625,20 @@ private fun SettingsLeadingIcon(
 @Composable
 private fun SettingsLeadingIcon(
     iconPainter: Painter,
-    tint: Color
+    tint: Color,
+    enabled: Boolean = true
 ) {
-    // Аналогично векторной версии: круглая пастельная подложка + тёмная иконка
-    val solid = tint.copy(alpha = 1f)
-    val pastel = lerp(solid, Color.White, 0.60f)
-    val iconTint = lerp(solid, Color.Black, 0.55f)
+    val (container, content) = settingsIconColors(tint, enabled)
     Surface(
-        modifier = Modifier.size(56.dp),
+        modifier = Modifier.size(40.dp),
         shape = CircleShape,
-        color = pastel
+        color = container
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Icon(iconPainter, contentDescription = null, tint = iconTint, modifier = Modifier.size(26.dp))
+            Icon(iconPainter, contentDescription = null, tint = content, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -1682,19 +1697,16 @@ fun SettingsNavigationItem(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
+            .clip(SettingsItemShape)
             .clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainer),
         headlineContent = {
-            Text(title, color = colors.onSurface, fontFamily = font, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = colors.onSurface, fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         },
         supportingContent = {
-            Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 14.sp, lineHeight = 20.sp)
         },
-        leadingContent = { SettingsLeadingIcon(icon = icon, tint = iconBg) },
-        trailingContent = {
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
-        }
+        leadingContent = { SettingsLeadingIcon(icon = icon, tint = iconBg) }
     )
 }
 
@@ -1711,19 +1723,16 @@ fun SettingsNavigationItem(
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
+            .clip(SettingsItemShape)
             .clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainer),
         headlineContent = {
-            Text(title, color = colors.onSurface, fontFamily = font, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = colors.onSurface, fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         },
         supportingContent = {
-            Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(subtitle, color = colors.onSurfaceVariant, fontFamily = font, fontSize = 14.sp, lineHeight = 20.sp)
         },
-        leadingContent = { SettingsLeadingIcon(iconPainter = iconPainter, tint = iconBg) },
-        trailingContent = {
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
-        }
+        leadingContent = { SettingsLeadingIcon(iconPainter = iconPainter, tint = iconBg) }
     )
 }
 
@@ -1739,34 +1748,41 @@ fun SettingsSwitchItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
-    val headlineColor = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.5f)
-    val supportingColor = if (enabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.55f)
-    val iconTint = if (enabled) iconBg else iconBg.copy(alpha = 0.48f)
+    val headlineColor = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.38f)
+    val supportingColor = if (enabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.38f)
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .clickable(enabled = enabled) { onCheckedChange(!checked) },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            .clip(SettingsItemShape)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            ),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainer),
         headlineContent = {
-            Text(title, color = headlineColor, fontFamily = font, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = headlineColor, fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         },
         supportingContent = {
-            Text(subtitle, color = supportingColor, fontFamily = font, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(subtitle, color = supportingColor, fontFamily = font, fontSize = 14.sp, lineHeight = 20.sp)
         },
-        leadingContent = { SettingsLeadingIcon(icon = icon, tint = iconTint) },
+        leadingContent = { SettingsLeadingIcon(icon = icon, tint = iconBg, enabled = enabled) },
         trailingContent = {
+            // Нажатие обрабатывает вся строка (toggleable), сам Switch — только индикатор
             Switch(
                 checked = checked,
-                onCheckedChange = onCheckedChange,
+                onCheckedChange = null,
                 enabled = enabled,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = colors.onPrimary,
-                    checkedTrackColor = colors.primary,
-                    uncheckedThumbColor = colors.surface,
-                    uncheckedTrackColor = colors.outlineVariant,
-                    uncheckedBorderColor = colors.outline
-                )
+                thumbContent = if (checked) {
+                    {
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(SwitchDefaults.IconSize)
+                        )
+                    }
+                } else null
             )
         }
     )

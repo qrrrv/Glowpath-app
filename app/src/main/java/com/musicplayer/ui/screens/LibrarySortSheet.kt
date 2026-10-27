@@ -1,6 +1,7 @@
 package com.musicplayer.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,44 +48,21 @@ internal val librarySortOptions = listOf(
 internal fun SettingsSortItem(sortOrder: SortOrder, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val option = librarySortOptions.first { it.order == sortOrder }
-    // Единый стиль с остальными пунктами настроек: карточка 26dp + круглая пастельная иконка
-    val solid = colors.primary.copy(alpha = 1f)
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(26.dp),
-        color = colors.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Surface(
-                modifier = Modifier.size(56.dp),
-                shape = CircleShape,
-                color = lerp(solid, Color.White, 0.60f)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Sort,
-                        null,
-                        tint = lerp(solid, Color.Black, 0.55f),
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    "Сортировка",
-                    color = colors.onSurface,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(option.title, color = colors.onSurfaceVariant, fontSize = 13.sp)
-            }
-            Icon(Icons.Rounded.ChevronRight, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
-        }
-    }
+    // Тот же вид, что у остальных пунктов настроек (Android 16 / Material 3 Expressive)
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainer),
+        headlineContent = {
+            Text("Сортировка", color = colors.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        },
+        supportingContent = {
+            Text(option.title, color = colors.onSurfaceVariant, fontSize = 14.sp, lineHeight = 20.sp)
+        },
+        leadingContent = { SettingsLeadingIcon(icon = Icons.Rounded.Sort, tint = colors.primary) }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
