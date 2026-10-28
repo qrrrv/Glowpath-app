@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -61,7 +63,14 @@ enum class ToggleIconAnim {
     Repeat,
 
     /** Squash -> overshoot "pop" of the heart + expanding ring and sparkles. */
-    Favorite
+    Favorite,
+
+    /**
+     * Animated lyrics icon (speech bubble + typing lines + music note) drawn by
+     * [LyricsAnimatedIcon]; the bubble fills while [active]. Replaces the Material
+     * [Icon] entirely, the rest of the segment behaves like any other.
+     */
+    Lyrics
 }
 
 /**
@@ -205,6 +214,9 @@ fun ToggleSegmentButton(
                     ToggleIconAnim.Generic -> {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
+                    ToggleIconAnim.Lyrics -> {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                 }
                 onClick()
             }
@@ -264,6 +276,9 @@ fun ToggleSegmentButton(
                     ToggleIconAnim.Generic -> {
                         rotationZ = genericRotation
                     }
+                    // Lyrics рисует собственную анимацию внутри LyricsAnimatedIcon
+                    // (заливка пузыря, «печатающиеся» строки, кивок ноты) — здесь не нужно ничего.
+                    ToggleIconAnim.Lyrics -> { }
                 }
                 scaleX = s
                 scaleY = s
@@ -284,12 +299,27 @@ fun ToggleSegmentButton(
             },
             label = "toggleIconSwap"
         ) { shownIcon ->
-            Icon(
-                imageVector        = shownIcon,
-                contentDescription = contentDescription,
-                tint               = iconColor,
-                modifier           = Modifier.size(22.dp)
-            )
+            if (iconAnim == ToggleIconAnim.Lyrics) {
+                // Сегмент «Текст песни»: живая Canvas-иконка вместо векторной.
+                // cutColor = цвет «таблетки», чтобы на любом фоне строки внутри
+                // пузыря вырезались правильно (как в LyricsToggleButton).
+                val desc = contentDescription
+                LyricsAnimatedIcon(
+                    selected = active,
+                    tint = iconColor,
+                    cutColor = bgColor,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .semantics { if (desc != null) this.contentDescription = desc }
+                )
+            } else {
+                Icon(
+                    imageVector        = shownIcon,
+                    contentDescription = contentDescription,
+                    tint               = iconColor,
+                    modifier           = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }

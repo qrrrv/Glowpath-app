@@ -516,7 +516,7 @@ private fun PortraitPlayerContent(
             alpha = topReveal
             translationY = lerpFloat((-18).dp.toPx(), 0f, topReveal)
         }) {
-            TopBar(onBack, settings.lyricsOnCover, toggleLyrics, onSettingsClick, swipeProgress, songButtons)
+            TopBar(onBack, onSettingsClick, swipeProgress, songButtons)
         }
         Spacer(Modifier.height(8.dp))
         // Обложка получает всё свободное место (weight) и стоит в нём по центру, а блок
@@ -543,7 +543,7 @@ private fun PortraitPlayerContent(
             Spacer(Modifier.height(16.dp))
             ControlsSection(settings, isPlaying, viewModel, songButtons)
             Spacer(Modifier.height(8.dp))
-            BottomToggleRow(settings, isFavourite, viewModel, song.id, songButtons)
+            BottomToggleRow(settings, isFavourite, viewModel, song.id, songButtons, onLyricsToggle = toggleLyrics)
             Spacer(Modifier.height(8.dp))
             queueSlots.nextUp()
             Spacer(Modifier.height(6.dp))
@@ -584,7 +584,7 @@ private fun LandscapePlayerContent(
                 alpha = sideReveal
                 translationY = lerpFloat((-14).dp.toPx(), 0f, sideReveal)
             }) {
-                TopBar(onBack, settings.lyricsOnCover, toggleLyrics, onSettingsClick, swipeProgress, songButtons)
+                TopBar(onBack, onSettingsClick, swipeProgress, songButtons)
             }
             Spacer(Modifier.height(8.dp))
             CoverWithLyrics(
@@ -605,15 +605,19 @@ private fun LandscapePlayerContent(
             SongMetaSection(song, viewModel)
             ProgressSection(duration, isPlaying, viewModel, songButtons)
             ControlsSection(settings, isPlaying, viewModel, songButtons)
-            BottomToggleRow(settings, isFavourite, viewModel, song.id, songButtons)
+            BottomToggleRow(settings, isFavourite, viewModel, song.id, songButtons, onLyricsToggle = toggleLyrics)
         }
     }
 }
 
 @Composable
-private fun TopBar(onBack: () -> Unit, lyricsVisible: Boolean, onLyricsClick: () -> Unit, onSettingsClick: () -> Unit, swipeProgress: Float = 0f, songButtons: SongButtonColors? = null) {
+private fun TopBar(onBack: () -> Unit, onSettingsClick: () -> Unit, swipeProgress: Float = 0f, songButtons: SongButtonColors? = null) {
     val c = MaterialTheme.colorScheme
     Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        // Кнопка текстов переехала в нижний ряд (к Перемешать/Повтор/Лайк), поэтому
+        // «СЕЙЧАС ИГРАЕТ» никто не зажимает, а шапка симметрична: слева Свернуть,
+        // справа Настройки. Обе кнопки — FilledIconButton (одинаковая зона касания
+        // 48dp с кругом 40dp по центру), значит они всегда на одной горизонтальной оси.
         Text("СЕЙЧАС ИГРАЕТ", color = c.textDisabled, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.1f.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         // Круглые кнопки 40dp лежат в зоне касания 48dp, поэтому визуально они на 4dp внутри
@@ -626,15 +630,7 @@ private fun TopBar(onBack: () -> Unit, lyricsVisible: Boolean, onLyricsClick: ()
                 swipeProgress = swipeProgress
             )
         }
-        Row(Modifier.offset(x = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LyricsToggleButton(
-                selected = lyricsVisible,
-                onClick = onLyricsClick,
-                containerColor = songButtons?.topContainer ?: c.surfaceContainerLow,
-                contentColor = songButtons?.onTopContainer ?: c.onSurface,
-                selectedContainerColor = songButtons?.topSelectedContainer ?: c.primary,
-                selectedContentColor = songButtons?.onTopSelectedContainer ?: c.onPrimary
-            )
+        Box(Modifier.offset(x = 4.dp)) {
             FilledIconButton(
                 onSettingsClick,
                 colors = IconButtonDefaults.filledIconButtonColors(
@@ -926,7 +922,7 @@ private fun ControlsSection(settings: com.musicplayer.data.PlayerSettings, isPla
 }
 
 @Composable
-private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, viewModel: MusicViewModel, songId: Long, songButtons: SongButtonColors? = null) {
+private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, viewModel: MusicViewModel, songId: Long, songButtons: SongButtonColors? = null, onLyricsToggle: () -> Unit = {}) {
     val c = MaterialTheme.colorScheme
     val repeatIcon = when(settings.repeatMode) { RepeatMode.NONE -> Icons.Rounded.Repeat; RepeatMode.ALL -> Icons.Rounded.Repeat; RepeatMode.ONE -> Icons.Rounded.RepeatOne }
     // Выключенное состояние — чистые иконки без подложки (цвет как у вторичного текста плеера),
@@ -949,6 +945,16 @@ private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFav
                 songButtons?.toggleActive ?: c.secondary, songButtons?.onToggleActive ?: c.onSecondary,
                 inactiveIcon,
                 Modifier.weight(1f).fillMaxHeight(), iconAnim = ToggleIconAnim.Repeat
+            )
+            // Текст песни: четвёртая иконка ряда. Раньше жила в шапке, где из-за неё
+            // «СЕЙЧАС ИГРАЕТ» зажималась, а справа было две кнопки против одной слева.
+            // Иконка — собственная анимация LyricsAnimatedIcon (пузырёк + нота),
+            // поэтому в ToggleIconAnim добавлен режим Lyrics.
+            ToggleSegmentButton(
+                settings.lyricsOnCover, OutlinedLyrics, "Текст песни", onLyricsToggle,
+                songButtons?.toggleActive ?: c.primary, songButtons?.onToggleActive ?: c.onPrimary,
+                inactiveIcon,
+                Modifier.weight(1f).fillMaxHeight(), iconAnim = ToggleIconAnim.Lyrics
             )
             ToggleSegmentButton(
                 isFavourite, if(isFavourite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Избранное", { viewModel.toggleFavourite(songId) },

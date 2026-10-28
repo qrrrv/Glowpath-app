@@ -539,8 +539,9 @@ private fun PlayerNextUpRow(
             val info = display(shown)
             // Тонкая плашка в цвет нижней панели «Очередь»: «Дальше» читается как часть
             // шторки, а не как строка, висящая над ней. Высота осталась прежней (28 + 2×4 = 36dp),
-            // поэтому раскладка плеера не сдвигается. Скругление обложки (10dp) = скругление
-            // плашки (14dp) минус внутренний отступ (4dp) — углы получаются концентричными.
+            // поэтому раскладка плеера не сдвигается. Мини-обложка — круг (CircleShape):
+            // у квадрата 28dp радиус 14dp равен скруглению самой плашки, поэтому левый
+            // край обложки повторяет изгиб капсулы — углы выглядят концентричными.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -553,7 +554,7 @@ private fun PlayerNextUpRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                QueueArtwork(uri = info.artUri, title = info.title, size = 28.dp, corner = 10.dp)
+                QueueArtwork(uri = info.artUri, title = info.title, size = 28.dp, corner = 14.dp)
                 Text(
                     text = "Дальше: ${info.title} — ${info.artist}",
                     style = MaterialTheme.typography.bodySmall,
