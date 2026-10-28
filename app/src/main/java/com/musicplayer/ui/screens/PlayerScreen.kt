@@ -347,6 +347,29 @@ fun PlayerScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Набор цветов кнопок плеера, выведенных из градиента текущей обложки. */
+/** Боковое поле единой колонки плеера: от него отсчитываются обложка, ползунок, кнопки и «Дальше». */
+private val PlayerSideMargin = 28.dp
+
+/** Максимальная ширина колонки = макс. размер обложки (360dp) + поля — на планшетах колонка не расползается шире обложки. */
+private val PlayerColumnMaxWidth = 360.dp + PlayerSideMargin * 2
+
+/**
+ * Расширяет элемент на [amount] за левый и правый край, не меняя занимаемую в раскладке ширину.
+ * Нужен волнистому слайдеру: его линия начинается с отступа ~6dp от края (радиус ползунка),
+ * из-за чего волна выглядела уже обложки и кнопок.
+ */
+private fun Modifier.bleedHorizontally(amount: androidx.compose.ui.unit.Dp): Modifier =
+    layout { measurable, constraints ->
+        val extra = (amount * 2).roundToPx()
+        val maxW = if (constraints.hasBoundedWidth) constraints.maxWidth + extra else constraints.maxWidth
+        val placeable = measurable.measure(
+            constraints.copy(minWidth = (constraints.minWidth + extra).coerceAtMost(maxW), maxWidth = maxW)
+        )
+        layout((placeable.width - extra).coerceAtLeast(0), placeable.height) {
+            placeable.place(-extra / 2, 0)
+        }
+    }
+
 private data class SongButtonColors(
     val playContainer: Color,
     val onPlayContainer: Color,
@@ -481,14 +504,21 @@ private fun PortraitPlayerContent(
     val contentReveal = ((openProgress - 0.35f) / 0.65f).coerceIn(0f, 1f)
     val contentOffset = with(density) { lerpFloat(34.dp.toPx(), 0f, contentReveal) }
     val topReveal = ((openProgress - 0.5f) / 0.5f).coerceIn(0f, 1f)
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    // Единая колонка: обложка, ползунок, кнопки управления и «Дальше» имеют одни и те же
+    // левый/правый края (поле PlayerSideMargin). Чтобы обложка (квадрат) дотянулась до ширины
+    // колонки, вертикальные отступы ниже слегка сжаты — освободившееся место отдано обложке.
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Column(
+        Modifier.fillMaxHeight().widthIn(max = PlayerColumnMaxWidth).fillMaxWidth().padding(horizontal = PlayerSideMargin),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Box(Modifier.graphicsLayer {
             alpha = topReveal
             translationY = lerpFloat((-18).dp.toPx(), 0f, topReveal)
         }) {
             TopBar(onBack, settings.lyricsOnCover, toggleLyrics, onSettingsClick, swipeProgress, songButtons)
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(8.dp))
         // Обложка получает всё свободное место (weight) и стоит в нём по центру, а блок
         // управления прижат вниз — поэтому «Дальше» всегда лежит прямо над шторкой очереди.
         // Размер обложки = всё свободное место (до 360dp). Нажатие на «Текст» плавно
@@ -502,22 +532,23 @@ private fun PortraitPlayerContent(
         ) { coverScale ->
             AlbumArtSection(song, isPlaying, artScale * coverScale, customArtUri, previousCover, nextCover, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress, artworkModifier)
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
         Column(Modifier.graphicsLayer {
             alpha = contentReveal
             translationY = contentOffset
         }) {
             SongMetaSection(song, viewModel)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
             ProgressSection(duration, isPlaying, viewModel, songButtons)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
             ControlsSection(settings, isPlaying, viewModel, songButtons)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(8.dp))
             BottomToggleRow(settings, isFavourite, viewModel, song.id, songButtons)
             Spacer(Modifier.height(8.dp))
             queueSlots.nextUp()
             Spacer(Modifier.height(6.dp))
         }
+    }
     }
 }
 
@@ -585,13 +616,17 @@ private fun TopBar(onBack: () -> Unit, lyricsVisible: Boolean, onLyricsClick: ()
     Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
         Text("СЕЙЧАС ИГРАЕТ", color = c.textDisabled, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.1f.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        AnimatedBackButton(
-            onBack = onBack,
-            containerColor = songButtons?.topContainer ?: c.surfaceContainerLow,
-            iconColor = songButtons?.onTopContainer ?: c.onSurface,
-            swipeProgress = swipeProgress
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Круглые кнопки 40dp лежат в зоне касания 48dp, поэтому визуально они на 4dp внутри
+        // колонки. Сдвигаем на эти 4dp наружу, чтобы край кнопки совпадал с краем обложки.
+        Box(Modifier.offset(x = (-4).dp)) {
+            AnimatedBackButton(
+                onBack = onBack,
+                containerColor = songButtons?.topContainer ?: c.surfaceContainerLow,
+                iconColor = songButtons?.onTopContainer ?: c.onSurface,
+                swipeProgress = swipeProgress
+            )
+        }
+        Row(Modifier.offset(x = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             LyricsToggleButton(
                 selected = lyricsVisible,
                 onClick = onLyricsClick,
@@ -819,7 +854,7 @@ private fun ProgressSection(duration: Long, isPlaying: Boolean, viewModel: Music
                 value = sliderProgress,
                 onValueChange = { sliderProgress = it; isScrubbing = true },
                 isPlaying = isPlaying,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().bleedHorizontally(6.dp),
                 trackHeight = appStyle.sliderTrackHeight.dp.coerceIn(3.dp, 16.dp),
                 onValueChangeFinished = { commitSeek(sliderProgress) },
                 activeTrackColor = songButtons?.sliderActive ?: c.primary,
@@ -839,16 +874,24 @@ private fun ProgressSection(duration: Long, isPlaying: Boolean, viewModel: Music
                 )
             )
         }
-        Spacer(Modifier.height(6.dp))
-        // Таймкоды подтянуты к ползунку на 6dp: у слайдера есть собственный пустой
-        // запас снизу (touch-target), из-за него подписи казались оторванными.
-        // layout{} сдвигает ряд вверх и вместе с этим уменьшает занимаемую высоту,
-        // чтобы отступ до кнопок управления не вырос.
+        // Таймкоды вплотную к волне: цифры стоят ~5dp под нижним краем волны.
+        // 1) строка текста с lineHeight = размеру шрифта и trim=Both — внутри строки нет
+        //    «воздуха» над цифрами, значит расстояние до волны предсказуемо;
+        // 2) layout{} поднимает ряд на 8dp в пустую нижнюю часть слайдера (у него высота 32dp,
+        //    а волна занимает только ~10dp вокруг центра) и на столько же уменьшает занимаемую
+        //    высоту, чтобы отступ до кнопок управления не вырос.
+        val timeStyle = androidx.compose.ui.text.TextStyle(
+            lineHeight = settings.playerTimeSize.sp,
+            lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
+            )
+        )
         Row(
             Modifier
                 .fillMaxWidth()
                 .layout { measurable, constraints ->
-                    val pull = 6.dp.roundToPx()
+                    val pull = 8.dp.roundToPx()
                     val placeable = measurable.measure(constraints)
                     layout(placeable.width, (placeable.height - pull).coerceAtLeast(0)) {
                         placeable.place(0, -pull)
@@ -856,8 +899,8 @@ private fun ProgressSection(duration: Long, isPlaying: Boolean, viewModel: Music
                 },
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(displayedPosition.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
-            Text(duration.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
+            Text(displayedPosition.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp, style = timeStyle)
+            Text(duration.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp, style = timeStyle)
         }
     }
 }
@@ -892,9 +935,9 @@ private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFav
     Box(
         Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(48.dp) // без общей подложки высота 64dp не нужна — место отдано обложке
     ) {
-        Row(Modifier.fillMaxSize().padding(5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 5.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             ToggleSegmentButton(
                 settings.shuffleEnabled, Icons.Rounded.Shuffle, "Перемешать", { viewModel.toggleShuffle() },
                 songButtons?.toggleActive ?: c.primary, songButtons?.onToggleActive ?: c.onPrimary,

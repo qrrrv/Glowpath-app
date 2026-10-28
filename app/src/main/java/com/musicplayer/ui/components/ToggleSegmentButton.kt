@@ -208,7 +208,7 @@ fun ToggleSegmentButton(
                 }
                 onClick()
             }
-            .padding(vertical = 14.dp),
+            .padding(vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         // Sparkles + ring for the heart.
