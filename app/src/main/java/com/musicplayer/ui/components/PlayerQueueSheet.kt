@@ -414,6 +414,7 @@ fun PlayerQueueHost(
                 PlayerNextUpRow(
                     next = nextUpSong,
                     display = display,
+                    containerColor = panelColor,
                     onOpenQueue = {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         scope.launch { sheetState.bottomSheetState.expand() }
@@ -521,6 +522,7 @@ fun PlayerQueueHost(
 private fun PlayerNextUpRow(
     next: Song?,
     display: (Song) -> QueueDisplay,
+    containerColor: Color,
     onOpenQueue: () -> Unit,
 ) {
     val reduceMotion = rememberQueueReduceMotion()
@@ -537,18 +539,23 @@ private fun PlayerNextUpRow(
             Spacer(modifier = Modifier.height(NextUpHeight))
         } else {
             val info = display(shown)
+            // Тонкая плашка в цвет нижней панели «Очередь»: «Дальше» читается как часть
+            // шторки, а не как строка, висящая над ней. Высота осталась прежней (28 + 2×4 = 36dp),
+            // поэтому раскладка плеера не сдвигается. Скругление обложки (10dp) = скругление
+            // плашки (14dp) минус внутренний отступ (4dp) — углы получаются концентричными.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = NextUpHeight)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(containerColor)
                     .clickable(role = Role.Button, onClick = onOpenQueue)
                     .queueInactiveForMotion(shown.id != next?.id)
-                    .padding(horizontal = 4.dp),
+                    .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                QueueArtwork(uri = info.artUri, title = info.title, size = 28.dp, corner = 6.dp)
+                QueueArtwork(uri = info.artUri, title = info.title, size = 28.dp, corner = 10.dp)
                 Text(
                     text = "Дальше: ${info.title} — ${info.artist}",
                     style = MaterialTheme.typography.bodySmall,
