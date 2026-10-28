@@ -9,12 +9,14 @@ import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.StartOffsetType
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -384,17 +386,21 @@ private fun LyricsLineView(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    // M3 Expressive: активная строка мягко «раздувается» от левого края — медленная пружина
+    // вместо резкого твина, масштаб 1.05 как в спеках expressive-типографики.
     val scale by animateFloatAsState(
-        targetValue = if (selectedLine) 1.1f else 1f,
-        animationSpec = tween(durationMillis = 700),
+        targetValue = if (selectedLine) 1.05f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
         label = "current-line-scale-animation"
     )
 
     val isRtl = line.text.isRtlText()
 
+    // Точка трансформации — по левому краю и вертикальному центру строки: активная фраза
+    // растёт «от начала текста», как в Material 3 Expressive (для RTL и правого выравнивания — зеркально).
     val transformOrigin = when (textAlign) {
-        TextAlign.End -> if (isRtl) TransformOrigin(0f, 1f) else TransformOrigin(1f, 1f)
-        TextAlign.Start -> if (isRtl) TransformOrigin(1f, 1f) else TransformOrigin(0f, 1f)
+        TextAlign.End -> if (isRtl) TransformOrigin(0f, 0.5f) else TransformOrigin(1f, 0.5f)
+        TextAlign.Start -> if (isRtl) TransformOrigin(1f, 0.5f) else TransformOrigin(0f, 0.5f)
         else -> TransformOrigin.Center
     }
 

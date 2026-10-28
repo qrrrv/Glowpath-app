@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -152,6 +153,18 @@ fun PlayerScreen(
     var queueTop by remember { mutableFloatStateOf(Float.POSITIVE_INFINITY) }
     var queueExpanded by remember { mutableStateOf(false) }
     val artworkLayer = rememberGraphicsLayer()
+
+    // Полёт обложки «центр экрана → капсула шапки» при включении текста песни и обратно.
+    // Тем же значением гасится реальная обложка в центре (CoverWithLyrics.flightProgress),
+    // поэтому передача между летающим слоем и обложкой бесшовна с обеих сторон.
+    val lyricsFlight by animateFloatAsState(
+        targetValue = if (settings.lyricsOnCover) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f),
+        label = "lyricsCoverFlight"
+    )
+    // Позиция мини-слота обложки в капсуле шапки (в координатах root) — её сообщает TopBar.
+    var capsuleSlotBounds by remember { mutableStateOf<Rect?>(null) }
+
     val expandedFraction = motion.fraction
     val latestOnBack by rememberUpdatedState(onBack)
     val fallbackHeight = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
@@ -271,7 +284,7 @@ fun PlayerScreen(
                     viewModel, customArtUri, previousCover, nextCover, requestClose,
                     onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev,
                     swipeProgress, expandedFraction, artworkModifier, lyricsModifier,
-                    songButtons
+                    songButtons, lyricsFlight, { capsuleSlotBounds = it }
                 )
             } else {
                 PlayerQueueHost(
@@ -287,7 +300,7 @@ fun PlayerScreen(
                         viewModel, customArtUri, previousCover, nextCover, requestClose,
                         onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev,
                         swipeProgress, expandedFraction, queueSlots, artworkModifier, lyricsModifier,
-                        songButtons
+                        songButtons, lyricsFlight, { capsuleSlotBounds = it }
                     )
                 }
             }
@@ -313,6 +326,44 @@ fun PlayerScreen(
                     val corner = lerpFloat(
                         minOf(artworkCornerPx * width / source.width, width / 2f),
                         14.dp.toPx(), collapse
+                    )
+                    val outline = Path().apply {
+                        addRoundRect(RoundRect(left, top, left + width, top + width,
+                            CornerRadius(corner)))
+                    }
+                    clipPath(outline) {
+                        translate(left, top) {
+                            scale(width / source.width, width / source.width, pivot = Offset.Zero) {
+                                drawLayer(artworkLayer)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Полёт обложки «центр → капсула шапки» при включении текста песни и обратный
+        // перелёт при выключении. Рисуем захваченный слой обложки (artworkLayer) поверх
+        // всего плеера: в центре обложка гаснет по той же пружине, а в капсуле мини-обложка
+        // уже стоит на месте — у концов траектории не видно ни «двоения», ни провала.
+        if ((settings.lyricsOnCover || lyricsFlight > 0f) && lyricsFlight < 1f) {
+            Canvas(Modifier.fillMaxSize().graphicsLayer {
+                alpha = if (lyricsFlight < 0.85f) 1f else ((1f - lyricsFlight) / 0.15f).coerceIn(0f, 1f)
+            }) {
+                val source = artworkBounds?.translate(-parentOrigin)
+                val target = capsuleSlotBounds?.translate(-parentOrigin)
+                if (source != null && target != null && source.width > 0f &&
+                    artworkLayer.size.width > 0
+                ) {
+                    val f = lyricsFlight
+                    val width = lerpFloat(source.width, target.width, f)
+                    val cx = lerpFloat(source.center.x, target.center.x, f)
+                    val cy = lerpFloat(source.center.y, target.center.y, f)
+                    val left = cx - width / 2f
+                    val top = cy - width / 2f
+                    val corner = lerpFloat(
+                        minOf(artworkCornerPx * width / source.width, width / 2f),
+                        8.dp.toPx(), f
                     )
                     val outline = Path().apply {
                         addRoundRect(RoundRect(left, top, left + width, top + width,
@@ -486,6 +537,8 @@ private fun PortraitPlayerContent(
     artworkModifier: Modifier = Modifier,
     lyricsModifier: Modifier = Modifier,
     songButtons: SongButtonColors? = null,
+    lyricsFlight: Float = 0f,
+    onCapsuleSlotPositioned: (Rect) -> Unit = {},
 ) {
     // Booming: кнопка «Текст» плавно меняет обложку на текст песни (alpha 1→0 / 0→1, 350 мс).
     val lyricsProgress by animateFloatAsState(
@@ -499,6 +552,10 @@ private fun PortraitPlayerContent(
             viewModel.updateSettings(settings.copy(lyricsOnCover = !settings.lyricsOnCover))
         }
     }
+    // Текст капсулы в шапке: альбом → исполнитель → «Караоке».
+    val capsuleTitle = if (song.album.isNotBlank()) song.album
+        else if (song.displayArtist().isNotBlank()) song.displayArtist() else "Караоке"
+    val capsuleArt = customArtUri ?: song.albumArtUri
     val density = LocalDensity.current
     val contentReveal = ((openProgress - 0.35f) / 0.65f).coerceIn(0f, 1f)
     val contentOffset = with(density) { lerpFloat(34.dp.toPx(), 0f, contentReveal) }
@@ -515,7 +572,17 @@ private fun PortraitPlayerContent(
             alpha = topReveal
             translationY = lerpFloat((-18).dp.toPx(), 0f, topReveal)
         }) {
-            TopBar(onBack, onSettingsClick, swipeProgress, songButtons)
+            TopBar(
+                onBack = onBack,
+                onSettingsClick = onSettingsClick,
+                swipeProgress = swipeProgress,
+                songButtons = songButtons,
+                lyricsVisible = settings.lyricsOnCover,
+                onLyricsClose = toggleLyrics,
+                capsuleTitle = capsuleTitle,
+                capsuleArt = capsuleArt,
+                onCapsuleSlotPositioned = onCapsuleSlotPositioned,
+            )
         }
         Spacer(Modifier.height(8.dp))
         // Обложка получает всё свободное место (weight) и стоит в нём по центру, а блок
@@ -527,7 +594,10 @@ private fun PortraitPlayerContent(
             song = song,
             lyricsProgress = lyricsProgress,
             onExpand = onLyricsClick,
-            modifier = Modifier.weight(1f).fillMaxWidth().then(lyricsModifier)
+            modifier = Modifier.weight(1f).fillMaxWidth().then(lyricsModifier),
+            flightProgress = lyricsFlight,
+            expandContainerColor = songButtons?.topContainer ?: MaterialTheme.colorScheme.surfaceContainerLow,
+            expandIconColor = songButtons?.onTopContainer ?: MaterialTheme.colorScheme.onSurface,
         ) { coverScale ->
             AlbumArtSection(song, isPlaying, artScale * coverScale, customArtUri, previousCover, nextCover, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress, artworkModifier)
         }
@@ -561,6 +631,8 @@ private fun LandscapePlayerContent(
     artworkModifier: Modifier = Modifier,
     lyricsModifier: Modifier = Modifier,
     songButtons: SongButtonColors? = null,
+    lyricsFlight: Float = 0f,
+    onCapsuleSlotPositioned: (Rect) -> Unit = {},
 ) {
     // Booming: кнопка «Текст» плавно меняет обложку на текст песни (alpha 1→0 / 0→1, 350 мс).
     val lyricsProgress by animateFloatAsState(
@@ -574,6 +646,10 @@ private fun LandscapePlayerContent(
             viewModel.updateSettings(settings.copy(lyricsOnCover = !settings.lyricsOnCover))
         }
     }
+    // Текст капсулы в шапке: альбом → исполнитель → «Караоке».
+    val capsuleTitle = if (song.album.isNotBlank()) song.album
+        else if (song.displayArtist().isNotBlank()) song.displayArtist() else "Караоке"
+    val capsuleArt = customArtUri ?: song.albumArtUri
     val density = LocalDensity.current
     val sideReveal = ((openProgress - 0.35f) / 0.65f).coerceIn(0f, 1f)
     val sideOffset = with(density) { lerpFloat(26.dp.toPx(), 0f, sideReveal) }
@@ -583,7 +659,17 @@ private fun LandscapePlayerContent(
                 alpha = sideReveal
                 translationY = lerpFloat((-14).dp.toPx(), 0f, sideReveal)
             }) {
-                TopBar(onBack, onSettingsClick, swipeProgress, songButtons)
+                TopBar(
+                    onBack = onBack,
+                    onSettingsClick = onSettingsClick,
+                    swipeProgress = swipeProgress,
+                    songButtons = songButtons,
+                    lyricsVisible = settings.lyricsOnCover,
+                    onLyricsClose = toggleLyrics,
+                    capsuleTitle = capsuleTitle,
+                    capsuleArt = capsuleArt,
+                    onCapsuleSlotPositioned = onCapsuleSlotPositioned,
+                )
             }
             Spacer(Modifier.height(8.dp))
             CoverWithLyrics(
@@ -591,7 +677,10 @@ private fun LandscapePlayerContent(
                 song = song,
                 lyricsProgress = lyricsProgress,
                 onExpand = onLyricsClick,
-                modifier = Modifier.weight(1f).fillMaxWidth().then(lyricsModifier)
+                modifier = Modifier.weight(1f).fillMaxWidth().then(lyricsModifier),
+                flightProgress = lyricsFlight,
+                expandContainerColor = songButtons?.topContainer ?: MaterialTheme.colorScheme.surfaceContainerLow,
+                expandIconColor = songButtons?.onTopContainer ?: MaterialTheme.colorScheme.onSurface,
             ) { coverScale ->
                 AlbumArtSection(song, isPlaying, artScale * coverScale, customArtUri, previousCover, nextCover, onSwipeNext, onSwipePrev, { viewModel.setCustomArt(song.id, null) }, settings.albumArtAnim, settings.animParams, openProgress, artworkModifier)
             }
@@ -610,22 +699,88 @@ private fun LandscapePlayerContent(
 }
 
 @Composable
-private fun TopBar(onBack: () -> Unit, onSettingsClick: () -> Unit, swipeProgress: Float = 0f, songButtons: SongButtonColors? = null) {
+private fun TopBar(
+    onBack: () -> Unit,
+    onSettingsClick: () -> Unit,
+    swipeProgress: Float = 0f,
+    songButtons: SongButtonColors? = null,
+    lyricsVisible: Boolean = false,
+    onLyricsClose: () -> Unit = {},
+    capsuleTitle: String = "",
+    capsuleArt: android.net.Uri? = null,
+    onCapsuleSlotPositioned: ((Rect) -> Unit)? = null,
+) {
     val c = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-        // Кнопка текстов переехала в нижний ряд (к Перемешать/Повтор/Лайк), поэтому
-        // «СЕЙЧАС ИГРАЕТ» никто не зажимает, а шапка симметрична: слева Свернуть,
-        // справа Настройки. Обе кнопки — FilledIconButton (одинаковая зона касания
-        // 48dp с кругом 40dp по центру), значит они всегда на одной горизонтальной оси.
-        Text("СЕЙЧАС ИГРАЕТ", color = c.textDisabled, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.1f.sp)
+    // Тот же тональный цвет, что у круглых кнопок шапки («Свернуть» и «Настройки»).
+    val tonalContainer = songButtons?.topContainer ?: c.surfaceContainerLow
+    val onTonalContainer = songButtons?.onTopContainer ?: c.onSurface
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        // Центр шапки: «СЕЙЧАС ИГРАЕТ» ⇄ капсула с прилетевшей обложкой.
+        // Горизонтальные 56dp = зона касания кнопки (48dp) + сдвиг 4dp + запас 4dp —
+        // капсула с длинным альбомом никогда не наезжает на круглые кнопки.
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = 56.dp).height(48.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedVisibility(
+                visible = !lyricsVisible,
+                enter = fadeIn(tween(200)) + slideInVertically { -it / 2 },
+                exit = fadeOut(tween(200)) + slideOutVertically { -it / 2 },
+            ) {
+                Text("СЕЙЧАС ИГРАЕТ", color = c.textDisabled, fontFamily = LocalAppFontFamily.current, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.1f.sp)
+            }
+            // Капсула-«док»: сюда прилетает обложка (см. полёт в PlayerScreen), здесь —
+            // мини-обложка и краткий текст альбома. Тап возвращает обложку в центр.
+            AnimatedVisibility(
+                visible = lyricsVisible,
+                enter = fadeIn(tween(200)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 380f), initialScale = 0.7f),
+                exit = fadeOut(tween(150)) + scaleOut(spring(dampingRatio = 0.8f, stiffness = 380f), targetScale = 0.7f),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(tonalContainer.copy(alpha = 0.75f))
+                        .clickable(onClick = onLyricsClose)
+                        .padding(start = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .onGloballyPositioned { coords ->
+                                onCapsuleSlotPositioned?.invoke(coords.boundsInRoot())
+                            }
+                    ) {
+                        OptimizedAlbumArt(
+                            uri = capsuleArt,
+                            title = capsuleTitle,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        capsuleTitle,
+                        color = onTonalContainer,
+                        fontFamily = LocalAppFontFamily.current,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(end = 12.dp)
+                    )
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         // Круглые кнопки 40dp лежат в зоне касания 48dp, поэтому визуально они на 4dp внутри
         // колонки. Сдвигаем на эти 4dp наружу, чтобы край кнопки совпадал с краем обложки.
         Box(Modifier.offset(x = (-4).dp)) {
             AnimatedBackButton(
                 onBack = onBack,
-                containerColor = songButtons?.topContainer ?: c.surfaceContainerLow,
-                iconColor = songButtons?.onTopContainer ?: c.onSurface,
+                containerColor = tonalContainer,
+                iconColor = onTonalContainer,
                 swipeProgress = swipeProgress
             )
         }
@@ -633,8 +788,8 @@ private fun TopBar(onBack: () -> Unit, onSettingsClick: () -> Unit, swipeProgres
             FilledIconButton(
                 onSettingsClick,
                 colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = songButtons?.topContainer ?: c.surfaceContainerLow,
-                    contentColor = songButtons?.onTopContainer ?: c.onSurface
+                    containerColor = tonalContainer,
+                    contentColor = onTonalContainer
                 )
             ) {
                 Icon(Icons.Rounded.Tune, "Настройки трека")

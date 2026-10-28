@@ -5,7 +5,9 @@ package com.musicplayer.ui.components
 import android.content.Context
 import android.os.PowerManager
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -38,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -81,6 +85,12 @@ private const val COVER_BASE_DP = 280f
  *
  * @param lyricsProgress 0 = cover only, 1 = lyrics only. Animate it from outside with
  *   tween([BOOMING_ANIM_TIME], [BoomingAnimEasing]).
+ * @param flightProgress 0 = cover at the center, 1 = cover "docked" into the top-bar
+ *   capsule. Drives the in-place cover alpha with the SAME spring that flies the
+ *   captured layer (see PlayerScreen), so the handover at both ends is seamless.
+ * @param expandContainerColor container color of the ⤢ button: the same tonal color
+ *   as the top-bar round buttons (alpha 0.85 is applied here).
+ * @param expandIconColor icon color of the ⤢ button: light/contrast, like top-bar icons.
  * @param cover receives a scale relative to 280dp (the default cover size in this app).
  */
 @Composable
@@ -90,6 +100,9 @@ fun CoverWithLyrics(
     lyricsProgress: Float,
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
+    flightProgress: Float = 0f,
+    expandContainerColor: Color? = null,
+    expandIconColor: Color? = null,
     cover: @Composable (coverScale: Float) -> Unit
 ) {
     // Booming keeps the screen on while lyrics are visible on the cover and music is playing.
@@ -106,7 +119,10 @@ fun CoverWithLyrics(
         val coverSize = minOf(maxWidth, maxHeight - 8.dp).coerceIn(140.dp, 360.dp)
         val coverScale = coverSize / COVER_BASE_DP.dp
 
-        Box(Modifier.graphicsLayer { alpha = 1f - lyricsProgress }) {
+        // Обложка гаснет по пружине ПОЛЁТА (не по кроссфейду Booming): в тот же момент
+        // поверх неё рисуется летящий слой (PlayerScreen), и на обратном пути обложка
+        // возвращается к alpha = 1 ровно к моменту приземления — без «прыжка яркости».
+        Box(Modifier.graphicsLayer { alpha = 1f - flightProgress }) {
             Box(Modifier.wrapContentSize(Alignment.Center, unbounded = true)) {
                 cover(coverScale)
             }
@@ -128,7 +144,9 @@ fun CoverWithLyrics(
                 CoverLyricsContent(
                     viewModel = viewModel,
                     song = song,
-                    onExpand = onExpand
+                    onExpand = onExpand,
+                    expandContainerColor = expandContainerColor,
+                    expandIconColor = expandIconColor,
                 )
             }
         }
@@ -139,7 +157,9 @@ fun CoverWithLyrics(
 private fun CoverLyricsContent(
     viewModel: MusicViewModel,
     song: Song,
-    onExpand: () -> Unit
+    onExpand: () -> Unit,
+    expandContainerColor: Color? = null,
+    expandIconColor: Color? = null,
 ) {
     val c = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -167,7 +187,23 @@ private fun CoverLyricsContent(
     else FadingEdges(top = 72.dp, bottom = 64.dp)
     val contentPadding = PaddingValues(vertical = 72.dp, horizontal = 12.dp)
 
+    // Мягкий пружинный вход блока текста: эквивалент slideInVertically { it / 6 } + fadeIn()
+    // — строки поднимаются снизу на 1/6 высоты блока и одновременно проявляются.
+    val entrance = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        entrance.animateTo(1f, spring(dampingRatio = 0.85f, stiffness = 380f))
+    }
+
     Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val e = entrance.value
+                    translationY = (1f - e) * size.height / 6f
+                    alpha = e
+                }
+        ) {
         // New song => fresh list state (scroll position of the previous song is dropped).
         key(song.id) {
         when (val state = lyricsState) {
@@ -253,15 +289,32 @@ private fun CoverLyricsContent(
             }
         }
         }
+        }
 
+        // Кнопка «Развернуть текст» (⤢): фон — тот же тональный цвет, что у круглых
+        // кнопок шапки (alpha 0.85), иконка — контрастная, как иконки шапки.
+        // Правый край — по общей сетке плеера: зона касания сдвинута на 4dp наружу,
+        // поэтому видимый круг 40dp встаёт на одну линию с кнопкой «Настройки»
+        // и правым краем волны прогресса. Появление — scaleIn() + fadeIn() пружиной.
+        val buttonEntrance = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            buttonEntrance.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 380f))
+        }
         FilledIconButton(
             onClick = onExpand,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp),
+                .padding(bottom = 16.dp)
+                .offset(x = 4.dp)
+                .graphicsLayer {
+                    val s = buttonEntrance.value
+                    scaleX = s
+                    scaleY = s
+                    alpha = s
+                },
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = c.onSurface,
-                contentColor = c.surface
+                containerColor = (expandContainerColor ?: c.surfaceContainerLow).copy(alpha = 0.85f),
+                contentColor = expandIconColor ?: c.onSurface
             )
         ) {
             Icon(Icons.Rounded.OpenInFull, contentDescription = "Развернуть текст")
