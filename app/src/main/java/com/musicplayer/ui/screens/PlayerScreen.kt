@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -839,7 +840,22 @@ private fun ProgressSection(duration: Long, isPlaying: Boolean, viewModel: Music
             )
         }
         Spacer(Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        // Таймкоды подтянуты к ползунку на 6dp: у слайдера есть собственный пустой
+        // запас снизу (touch-target), из-за него подписи казались оторванными.
+        // layout{} сдвигает ряд вверх и вместе с этим уменьшает занимаемую высоту,
+        // чтобы отступ до кнопок управления не вырос.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .layout { measurable, constraints ->
+                    val pull = 6.dp.roundToPx()
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, (placeable.height - pull).coerceAtLeast(0)) {
+                        placeable.place(0, -pull)
+                    }
+                },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text(displayedPosition.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
             Text(duration.toTimeString(), color = c.textSecondary, fontFamily = LocalAppFontFamily.current, fontSize = settings.playerTimeSize.sp)
         }
@@ -866,30 +882,31 @@ private fun ControlsSection(settings: com.musicplayer.data.PlayerSettings, isPla
 private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFavourite: Boolean, viewModel: MusicViewModel, songId: Long, songButtons: SongButtonColors? = null) {
     val c = MaterialTheme.colorScheme
     val repeatIcon = when(settings.repeatMode) { RepeatMode.NONE -> Icons.Rounded.Repeat; RepeatMode.ALL -> Icons.Rounded.Repeat; RepeatMode.ONE -> Icons.Rounded.RepeatOne }
+    // Выключенное состояние — чистые иконки без подложки (цвет как у вторичного текста плеера),
+    // цветная «таблетка» появляется только когда режим активен.
+    val inactiveIcon = c.textSecondary
     Box(
         Modifier
             .fillMaxWidth()
             .height(64.dp)
-            .clip(RoundedCornerShape(60.dp))
-            .background(songButtons?.pillBackground ?: MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Row(Modifier.fillMaxSize().padding(5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             ToggleSegmentButton(
                 settings.shuffleEnabled, Icons.Rounded.Shuffle, "Перемешать", { viewModel.toggleShuffle() },
                 songButtons?.toggleActive ?: c.primary, songButtons?.onToggleActive ?: c.onPrimary,
-                songButtons?.toggleInactive ?: c.surfaceContainerHighest, songButtons?.onToggleInactive ?: c.onSurfaceVariant,
+                inactiveIcon,
                 Modifier.weight(1f).fillMaxHeight(), iconAnim = ToggleIconAnim.Shuffle
             )
             ToggleSegmentButton(
                 settings.repeatMode != RepeatMode.NONE, repeatIcon, "Повтор", { viewModel.toggleRepeat() },
                 songButtons?.toggleActive ?: c.secondary, songButtons?.onToggleActive ?: c.onSecondary,
-                songButtons?.toggleInactive ?: c.surfaceContainerHighest, songButtons?.onToggleInactive ?: c.onSurfaceVariant,
+                inactiveIcon,
                 Modifier.weight(1f).fillMaxHeight(), iconAnim = ToggleIconAnim.Repeat
             )
             ToggleSegmentButton(
                 isFavourite, if(isFavourite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Избранное", { viewModel.toggleFavourite(songId) },
                 songButtons?.toggleActive ?: c.tertiary, songButtons?.onToggleActive ?: c.onTertiary,
-                songButtons?.toggleInactive ?: c.surfaceContainerHighest, songButtons?.onToggleInactive ?: c.onSurfaceVariant,
+                inactiveIcon,
                 Modifier.weight(1f).fillMaxHeight(), iconAnim = ToggleIconAnim.Favorite
             )
         }

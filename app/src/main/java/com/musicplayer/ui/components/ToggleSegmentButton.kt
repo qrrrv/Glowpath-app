@@ -68,6 +68,8 @@ enum class ToggleIconAnim {
  * A single toggle segment button — used inside BottomToggleRow.
  * Adapted from PixelPlay's ToggleSegmentButton.
  *
+ * Inactive state has no background (plain icon); the coloured pill only shows while [active].
+ *
  * Material 3 Expressive motion:
  *  - pressed: the pill morphs to a squarer shape and squashes a little (spring);
  *  - released: it springs back to the full pill;
@@ -81,14 +83,15 @@ fun ToggleSegmentButton(
     onClick: () -> Unit,
     activeColor: Color,
     activeContentColor: Color,
-    inactiveColor: Color,
     inactiveContentColor: Color,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 60.dp,
     iconAnim: ToggleIconAnim = ToggleIconAnim.Generic
 ) {
     val bgColor by animateColorAsState(
-        targetValue   = if (active) activeColor else inactiveColor,
+        // Выключено — полностью прозрачный фон (тот же цвет с alpha = 0, чтобы при
+        // включении «таблетка» плавно проявлялась без проскока через чёрный).
+        targetValue   = if (active) activeColor else activeColor.copy(alpha = 0f),
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label         = "toggleBg"
     )
