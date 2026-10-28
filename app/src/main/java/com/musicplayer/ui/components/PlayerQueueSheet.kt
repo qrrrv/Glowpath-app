@@ -60,8 +60,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.DropdownMenu
@@ -463,7 +462,6 @@ fun PlayerQueueHost(
                         panelColor = panelColor,
                         display = display,
                         onExpand = { scope.launch { sheetState.bottomSheetState.expand() } },
-                        onTogglePlayback = { viewModel.togglePlayPause() },
                         onPlayAt = { index -> viewModel.playQueueItem(index) },
                         onRemoveAt = { index -> viewModel.removeQueueItem(index) },
                         onMove = { from, to -> viewModel.moveQueueItem(from, to) },
@@ -778,7 +776,6 @@ private fun PlayerQueueSheetContent(
     panelColor: Color,
     display: (Song) -> QueueDisplay,
     onExpand: () -> Unit,
-    onTogglePlayback: () -> Unit,
     onPlayAt: (Int) -> Unit,
     onRemoveAt: (Int) -> Unit,
     onMove: (from: Int, to: Int) -> Unit,
@@ -808,18 +805,20 @@ private fun PlayerQueueSheetContent(
                 .height(QueueTitleRowHeight)
                 .clickable(role = Role.Button, onClickLabel = "Очередь", onClick = onExpand),
         ) {
-            IconButton(
-                onClick = onTogglePlayback,
-                enabled = queue.isNotEmpty(),
+            // Раньше здесь была вторая кнопка паузы — она дублировала главную. Теперь это
+            // просто значок очереди (не кнопка): нажатие по всей строке и так раскрывает шторку.
+            Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 8.dp)
-                    .size(48.dp),
+                    .size(QueueTitleRowHeight),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Пауза" else "Играть",
-                    tint = colors.onSurface,
+                    imageVector = Icons.Rounded.QueueMusic,
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp),
                 )
             }
             AnimatedContent(

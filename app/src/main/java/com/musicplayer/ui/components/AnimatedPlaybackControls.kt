@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,18 +43,30 @@ import kotlinx.coroutines.launch
 
 private enum class PlaybackButtonType { NONE, PREVIOUS, PLAY_PAUSE, NEXT }
 
+/** Минимум во сколько раз центральная кнопка шире боковой (на очень узких экранах). */
+private const val MIN_CENTER_RATIO = 1.2f
+
 /**
  * Анимированные кнопки управления плеером.
  *
  * При нажатии на кнопку она расширяется, а остальные — сжимаются.
- * Кнопка Play/Pause меняет форму: круг при паузе, скруглённый прямоугольник при воспроизведении.
+ * Кнопка Play/Pause меняет форму: более скруглённая на паузе, мягкий squircle при воспроизведении.
  * Иконка Play/Pause меняется плавным Crossfade.
  *
+ * Раскладка: в покое боковые кнопки (⏮ ⏭) — идеальные круги (ширина = высоте), всё
+ * оставшееся место занимает центральная кнопка, поэтому она визуально доминирует.
+ * Анимация нажатия не менялась: нажатая кнопка растёт ×[expansionWeight], остальные
+ * сжимаются ×[compressionWeight] — но теперь эти коэффициенты применяются к базовому
+ * весу каждой кнопки, а не к общему «1.0», так что пропорции движения те же.
+ *
  * @param isPlayingProvider лямбда, возвращающая текущий статус воспроизведения
+ * @param baseWeight общий масштаб базовых весов (на пропорции не влияет)
+ * @param expansionWeight множитель веса нажатой кнопки
+ * @param compressionWeight множитель веса остальных кнопок, пока одна нажата
  * @param pressAnimationSpec анимация изменения веса (weight) при нажатии
  * @param releaseDelay задержка до "отпускания" кнопки (мс)
- * @param playPauseCornerPlaying радиус углов кнопки Play/Pause во время воспроизведения
- * @param playPauseCornerPaused радиус углов кнопки Play/Pause на паузе
+ * @param playPauseCornerPlaying радиус углов кнопки Play/Pause во время воспроизведения (показана пауза)
+ * @param playPauseCornerPaused радиус углов кнопки Play/Pause на паузе (показан значок play)
  */
 @Composable
 fun AnimatedPlaybackControls(
@@ -71,8 +84,8 @@ fun AnimatedPlaybackControls(
         stiffness = Spring.StiffnessMedium
     ),
     releaseDelay: Long = 220L,
-    playPauseCornerPlaying: Dp = 60.dp,
-    playPauseCornerPaused: Dp = 26.dp,
+    playPauseCornerPlaying: Dp = 24.dp,
+    playPauseCornerPaused: Dp = 36.dp,
     colorOtherButtons: Color = MaterialTheme.colorScheme.secondaryContainer,
     colorPlayPause: Color = MaterialTheme.colorScheme.primary,
     tintPlayPauseIcon: Color = MaterialTheme.colorScheme.onPrimary,
@@ -122,25 +135,34 @@ fun AnimatedPlaybackControls(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
     ) {
+        // Базовые веса: боковая кнопка = 1 «единица» = высота ряда (идеальный круг),
+        // центральная забирает всё оставшееся место. Считаем от реальной ширины,
+        // поэтому круги остаются кругами и на телефоне, и на планшете.
+        val rowSpacing = 6.dp
+        val innerWidth = if (constraints.hasBoundedWidth) maxWidth - rowSpacing * 2 else height * 4
+        val centerRatio = ((innerWidth - height * 2) / height).coerceAtLeast(MIN_CENTER_RATIO)
+        val sideBase = baseWeight
+        val centerBase = baseWeight * centerRatio
+
         Row(
             modifier = Modifier.matchParentSize(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(rowSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            fun weightFor(button: PlaybackButtonType): Float = when (lastClicked) {
-                button -> expansionWeight
-                null -> baseWeight
-                else -> compressionWeight
+            fun weightFor(button: PlaybackButtonType, base: Float): Float = when (lastClicked) {
+                button -> base * expansionWeight
+                null -> base
+                else -> base * compressionWeight
             }
 
             // --- Кнопка ПРЕДЫДУЩИЙ ТРЕК ---
             val prevWeight by animateFloatAsState(
-                targetValue = weightFor(PlaybackButtonType.PREVIOUS),
+                targetValue = weightFor(PlaybackButtonType.PREVIOUS, sideBase),
                 animationSpec = pressAnimationSpec,
                 label = "prevWeight"
             )
@@ -182,12 +204,12 @@ fun AnimatedPlaybackControls(
 
             // --- Кнопка PLAY/PAUSE ---
             val playWeight by animateFloatAsState(
-                targetValue = weightFor(PlaybackButtonType.PLAY_PAUSE),
+                targetValue = weightFor(PlaybackButtonType.PLAY_PAUSE, centerBase),
                 animationSpec = pressAnimationSpec,
                 label = "playWeight"
             )
             val playCorner by animateDpAsState(
-                targetValue = if (!playPauseVisualState) playPauseCornerPlaying else playPauseCornerPaused,
+                targetValue = if (playPauseVisualState) playPauseCornerPlaying else playPauseCornerPaused,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
                     stiffness = Spring.StiffnessMedium
@@ -235,7 +257,7 @@ fun AnimatedPlaybackControls(
 
             // --- Кнопка СЛЕДУЮЩИЙ ТРЕК ---
             val nextWeight by animateFloatAsState(
-                targetValue = weightFor(PlaybackButtonType.NEXT),
+                targetValue = weightFor(PlaybackButtonType.NEXT, sideBase),
                 animationSpec = pressAnimationSpec,
                 label = "nextWeight"
             )

@@ -867,6 +867,10 @@ private fun ControlsSection(settings: com.musicplayer.data.PlayerSettings, isPla
     val appStyle = com.musicplayer.ui.theme.LocalAppStyle.current
     // Применяем скругление кнопки из настроек темы
     val btnCorner = appStyle.buttonCornerRadius.dp.coerceIn(4.dp, 60.dp)
+    // Центральная кнопка: при воспроизведении — мягкий squircle (≈24dp при радиусе темы 20),
+    // на паузе — ещё более скруглённая. Раньше было вдвое меньше (10dp) и углы выглядели острыми.
+    val playingCorner = (btnCorner * 1.2f).coerceIn(22.dp, 30.dp)
+    val pausedCorner = maxOf(btnCorner, playingCorner * 1.5f).coerceAtMost(60.dp)
     AnimatedPlaybackControls(
         isPlayingProvider = { isPlaying }, onPrevious = { viewModel.playPrevious() }, onPlayPause = { viewModel.togglePlayPause() }, onNext = { viewModel.playNext() },
         modifier = Modifier.fillMaxWidth(), height = 80.dp, pressAnimationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
@@ -874,7 +878,7 @@ private fun ControlsSection(settings: com.musicplayer.data.PlayerSettings, isPla
         tintPlayPauseIcon = songButtons?.onPlayContainer ?: MaterialTheme.colorScheme.onPrimary,
         colorOtherButtons = songButtons?.otherContainer ?: MaterialTheme.colorScheme.secondaryContainer,
         tintOtherIcons = songButtons?.onOtherContainer ?: MaterialTheme.colorScheme.onSecondaryContainer,
-        playPauseCornerPlaying = btnCorner, playPauseCornerPaused = (btnCorner * 0.5f).coerceIn(4.dp, 30.dp)
+        playPauseCornerPlaying = playingCorner, playPauseCornerPaused = pausedCorner
     )
 }
 
