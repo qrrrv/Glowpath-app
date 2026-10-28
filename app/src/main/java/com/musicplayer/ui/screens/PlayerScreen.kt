@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
-import androidx.compose.material.icons.outlined.Lyrics as OutlinedLyrics
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -951,7 +950,7 @@ private fun BottomToggleRow(settings: com.musicplayer.data.PlayerSettings, isFav
             // Иконка — собственная анимация LyricsAnimatedIcon (пузырёк + нота),
             // поэтому в ToggleIconAnim добавлен режим Lyrics.
             ToggleSegmentButton(
-                settings.lyricsOnCover, OutlinedLyrics, "Текст песни", onLyricsToggle,
+                settings.lyricsOnCover, Icons.Rounded.MusicNote, "Текст песни", onLyricsToggle,
                 songButtons?.toggleActive ?: c.primary, songButtons?.onToggleActive ?: c.onPrimary,
                 inactiveIcon,
                 Modifier.weight(1f).fillMaxHeight(), iconAnim = ToggleIconAnim.Lyrics
