@@ -43,8 +43,18 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -228,6 +238,7 @@ fun HomeScreen(
     val settings        by viewModel.settings.collectAsState()
     val topBar          by viewModel.topBarSettings.collectAsState()
     var showMenu        by remember { mutableStateOf(false) }
+    var showSortSheet   by remember { mutableStateOf(false) }
     var searchQuery     by rememberSaveable { mutableStateOf("") }
     var isSearching     by rememberSaveable { mutableStateOf(false) }
     var songsToDelete   by remember { mutableStateOf<List<Song>>(emptyList()) }
@@ -254,6 +265,7 @@ fun HomeScreen(
         if (isSelectionMode) {
             keyboard?.hide()
             focusManager.clearFocus()
+            if (searchQuery.isBlank()) isSearching = false
         }
     }
     // Telegram-style: do NOT gate image loading on a derived visible-id set.
@@ -404,46 +416,48 @@ fun HomeScreen(
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.background,
+        // Шапка и список в начальном состоянии одного цвета — без «ступеньки» под заголовком
+        containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
-            Column {
-                HomeTopBar(
-                    topBar           = topBar,
-                    scrollBehavior   = scrollBehavior,
-                    isSearching      = isSearching,
-                    isSelectionMode  = isSelectionMode,
-                    selectedCount    = selectedIds.size,
-                    sortedSongsCount = sortedSongs.size,
-                    searchResultsCount = filteredSongs.size,
-                    searchQuery      = searchQuery,
-                    onSearchQueryChange = { searchQuery = it },
-                    onSearchToggle   = {
-                        if (isSearching) closeSearch() else {
-                            showMenu = false
-                            isSearching = true
-                        }
-                    },
-                    onClearSearch    = { searchQuery = "" },
-                    onClearSelection = { selectedIds = emptySet() },
-                    onSelectAll      = { selectedIds = filteredSongs.map { it.id }.toSet() },
-                    onDeleteSelected = {
-                        val toDeleteIds = selectedIds.toSet()
-                        songsToDelete = songs.filter { it.id in toDeleteIds }
-                    },
-                    showMenu         = showMenu,
-                    onMenuToggle     = { showMenu = !showMenu },
-                    onMenuDismiss    = { showMenu = false },
-                    onAddFile        = { showMenu = false; fileLauncher.launch(arrayOf("audio/*")) },
-                    onScanMusic      = {
+            HomeTopBar(
+                topBar           = topBar,
+                scrollBehavior   = scrollBehavior,
+                isSearching      = isSearching,
+                isSelectionMode  = isSelectionMode,
+                selectedCount    = selectedIds.size,
+                sortedSongsCount = sortedSongs.size,
+                searchResultsCount = filteredSongs.size,
+                searchQuery      = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                onSearchFocusChange = { focused ->
+                    if (focused) {
                         showMenu = false
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)
-                            permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_AUDIO)
-                        else
-                            permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-                    },
-                    onSettings       = { showMenu = false; onSettingsClick() }
-                )
-            }
+                        isSearching = true
+                    } else if (searchQuery.isBlank()) {
+                        isSearching = false
+                    }
+                },
+                onSearchClose    = closeSearch,
+                onClearSearch    = { searchQuery = "" },
+                onClearSelection = { selectedIds = emptySet() },
+                onSelectAll      = { selectedIds = filteredSongs.map { it.id }.toSet() },
+                onDeleteSelected = {
+                    val toDeleteIds = selectedIds.toSet()
+                    songsToDelete = songs.filter { it.id in toDeleteIds }
+                },
+                showMenu         = showMenu,
+                onMenuToggle     = { showMenu = !showMenu },
+                onMenuDismiss    = { showMenu = false },
+                onAddFile        = { showMenu = false; fileLauncher.launch(arrayOf("audio/*")) },
+                onScanMusic      = {
+                    showMenu = false
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)
+                        permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_AUDIO)
+                    else
+                        permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                },
+                onSettings       = { showMenu = false; onSettingsClick() }
+            )
         }
     ) { padding ->
         if (sortedSongs.isEmpty()) {
@@ -478,14 +492,32 @@ fun HomeScreen(
                         .fillMaxSize()
                         .simpleVerticalScrollbar(listState, color = c.accent.copy(alpha = 0.6f)),
                     contentPadding = PaddingValues(
-                        top  = padding.calculateTopPadding() + 8.dp,
+                        top  = padding.calculateTopPadding(),
                         bottom = LocalBottomChromeHeight.current + BottomChromeExtraSpace
                     ),
                     // Fast fling for smooth scroll in large libraries
                     flingBehavior = ScrollableDefaults.flingBehavior()
                 ) {
-
-
+                    if (!isSearching) {
+                        // Быстрые действия медиатеки — прокручиваются вместе со списком
+                        item(key = "library_actions", contentType = "library_actions") {
+                            LibraryActionsRow(
+                                sortOrder = settings.sortOrder,
+                                onShuffle = {
+                                    val pool = filteredSongs
+                                    if (pool.isNotEmpty()) {
+                                        if (!settings.shuffleEnabled) viewModel.toggleShuffle()
+                                        onSongClick(pool.random())
+                                    }
+                                },
+                                onSort = { showSortSheet = true }
+                            )
+                        }
+                    } else {
+                        item(key = "search_top_space", contentType = "space") {
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
 
                     itemsIndexed(
                         filteredSongs,
@@ -610,6 +642,14 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (showSortSheet) {
+        LibrarySortSheet(
+            sortOrder = settings.sortOrder,
+            onSortChange = { viewModel.updateSettings(settings.copy(sortOrder = it)) },
+            onDismiss = { showSortSheet = false },
+        )
     }
 
     if (songsToDelete.isNotEmpty()) {
@@ -1844,7 +1884,14 @@ private fun AnimatedMenuItemRow(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HomeTopBar — driven by TopBarSettings
+// HomeTopBar — компактная шапка Material 3 (Android 16)
+//
+//   ┌──────────────────────────────────────┐
+//   │ Медиатека                        (⋮) │  ← заголовок, уезжает при прокрутке
+//   │ [🔍 Поиск в медиатеке (149 треков)…] │  ← капсула, закреплена сверху
+//   └──────────────────────────────────────┘
+// Тональная подложка плавно проявляется по мере прокрутки списка.
+// Ряд «Перемешать / Сортировка» живёт в списке (см. LibraryActionsRow).
 // ─────────────────────────────────────────────────────────────────────────────
 private enum class HomeTopBarMode { Library, Search, Selection }
 
@@ -1863,7 +1910,8 @@ fun HomeTopBar(
     searchResultsCount: Int,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onSearchToggle: () -> Unit,
+    onSearchFocusChange: (Boolean) -> Unit,
+    onSearchClose: () -> Unit,
     onClearSearch: () -> Unit,
     onClearSelection: () -> Unit,
     onSelectAll: () -> Unit,
@@ -1882,51 +1930,57 @@ fun HomeTopBar(
         isSearching -> HomeTopBarMode.Search
         else -> HomeTopBarMode.Library
     }
-    val headerTransition = updateTransition(mode, label = "Library header")
-    val isScrolled by remember(scrollBehavior) {
-        derivedStateOf { scrollBehavior.state.overlappedFraction > 0.01f }
-    }
-    val containerColor by animateColorAsState(
-        targetValue = when {
-            mode == HomeTopBarMode.Selection -> scheme.secondaryContainer
-            mode == HomeTopBarMode.Search || isScrolled -> scheme.surfaceContainer
-            else -> scheme.surface
+
+    // Базовый цвет шапки: в покое = surface (как у списка), в поиске/выборе — тональный.
+    val baseColor by animateColorAsState(
+        targetValue = when (mode) {
+            HomeTopBarMode.Selection -> scheme.secondaryContainer
+            HomeTopBarMode.Search -> scheme.surfaceContainer
+            HomeTopBarMode.Library -> scheme.surface
         },
         animationSpec = tween(HOME_HEADER_MOTION_MS, easing = HomeHeaderEasing),
         label = "Library header color"
     )
+    val tonalColor = scheme.surfaceContainer
 
-    Surface(color = containerColor) {
-        // Apply system insets once so all three modes share the same top edge.
+    // Высота сворачиваемой части (заголовка) — чтобы scrollBehavior знал, на сколько «схлопывать».
+    var titleHeightPx by remember { mutableIntStateOf(0) }
+    val collapseLimit = -titleHeightPx.toFloat() // читаем в композиции, чтобы SideEffect перезапускался
+    SideEffect {
+        if (scrollBehavior.state.heightOffsetLimit != collapseLimit) {
+            scrollBehavior.state.heightOffsetLimit = collapseLimit
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                // Подложка проявляется плавно вместе с прокруткой (читаем состояние в фазе рисования,
+                // поэтому без перекомпозиции на каждый кадр).
+                val fraction = if (mode == HomeTopBarMode.Library) {
+                    scrollBehavior.state.overlappedFraction.coerceIn(0f, 1f)
+                } else 0f
+                drawRect(lerp(baseColor, tonalColor, fraction))
+            }
+    ) {
+        // Системные отступы применяем один раз, чтобы оба режима делили верхний край.
         Column(Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets)) {
-            headerTransition.AnimatedContent(
+            AnimatedContent(
+                targetState = isSelectionMode,
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.TopStart,
                 transitionSpec = {
-                    (fadeIn(tween(180, delayMillis = 60)) +
-                        slideInVertically(
-                            tween(HOME_HEADER_MOTION_MS, easing = HomeHeaderEasing)
-                        ) { it / 8 })
+                    fadeIn(tween(180, delayMillis = 60))
                         .togetherWith(fadeOut(tween(90)))
                         .using(SizeTransform(clip = true) { _, _ ->
                             tween(HOME_HEADER_MOTION_MS, easing = HomeHeaderEasing)
                         })
-                }
-            ) { headerMode ->
-                when (headerMode) {
-                    HomeTopBarMode.Search -> HomeSearchField(
-                        query = searchQuery,
-                        resultCount = searchResultsCount,
-                        onQueryChange = onSearchQueryChange,
-                        onClose = onSearchToggle,
-                        onClear = onClearSearch,
-                        enabled = mode == HomeTopBarMode.Search,
-                        // Wait for the panel to settle before bringing up the IME.
-                        requestFocus = headerTransition.currentState == HomeTopBarMode.Search &&
-                            !headerTransition.isRunning,
-                        font = font
-                    )
-                    HomeTopBarMode.Selection -> TopAppBar(
+                },
+                label = "Library header mode"
+            ) { selecting ->
+                if (selecting) {
+                    TopAppBar(
                         title = {
                             Text(
                                 "Выбрано: $selectedCount",
@@ -1956,103 +2010,61 @@ fun HomeTopBar(
                         ),
                         windowInsets = WindowInsets(0, 0, 0, 0)
                     )
-                    HomeTopBarMode.Library -> Column {
-                        LargeTopAppBar(
-                            title = {
-                                // Keep only the title here: Material measures it twice when collapsing.
-                                Text(
-                                    topBar.titleText.ifBlank { "Моя медиатека" },
-                                    fontFamily = font,
-                                    fontWeight = FontWeight.Normal,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            navigationIcon = {
-                                if (topBar.showIcon) {
-                                    Icon(
-                                        Icons.Rounded.LibraryMusic,
-                                        contentDescription = null,
-                                        tint = scheme.primary,
-                                        modifier = Modifier.padding(12.dp).size(24.dp)
-                                    )
-                                }
-                            },
-                            actions = {
-                                FilledTonalIconButton(
-                                    onClick = onSearchToggle,
-                                    modifier = Modifier.size(48.dp),
-                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                        containerColor = scheme.secondaryContainer,
-                                        contentColor = scheme.onSecondaryContainer
-                                    )
-                                ) {
-                                    Icon(Icons.Rounded.Search, contentDescription = "Поиск по медиатеке")
-                                }
-                                Box {
-                                    IconButton(onClick = onMenuToggle) {
-                                        Icon(Icons.Rounded.MoreVert, contentDescription = "Меню медиатеки")
-                                    }
-                                    DropdownMenu(
-                                        expanded = showMenu,
-                                        onDismissRequest = onMenuDismiss,
-                                        shape = MaterialTheme.shapes.large,
-                                        containerColor = scheme.surfaceContainer
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Добавить файл", fontFamily = font) },
-                                            leadingIcon = { Icon(Icons.Rounded.Add, null) },
-                                            onClick = { onMenuDismiss(); onAddFile() }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Найти всю музыку", fontFamily = font) },
-                                            leadingIcon = { Icon(Icons.Rounded.LibraryMusic, null) },
-                                            onClick = { onMenuDismiss(); onScanMusic() }
-                                        )
-                                        HorizontalDivider(
-                                            modifier = Modifier.padding(vertical = 4.dp),
-                                            color = scheme.outlineVariant
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Настройки", fontFamily = font) },
-                                            leadingIcon = { Icon(Icons.Rounded.Settings, null) },
-                                            onClick = { onMenuDismiss(); onSettings() }
-                                        )
-                                    }
-                                }
-                            },
-                            colors = TopAppBarDefaults.largeTopAppBarColors(
-                                containerColor = Color.Transparent,
-                                scrolledContainerColor = Color.Transparent,
-                                titleContentColor = scheme.onSurface,
-                                actionIconContentColor = scheme.onSurfaceVariant
-                            ),
-                            windowInsets = WindowInsets(0, 0, 0, 0),
-                            scrollBehavior = scrollBehavior
-                        )
-                        if (topBar.showSongCount) {
-                            val expandedFraction = 1f - scrollBehavior.state.collapsedFraction
-                            val subtitleHeight = with(LocalDensity.current) {
-                                MaterialTheme.typography.labelLarge.lineHeight.toDp()
-                            } + 12.dp
+                } else {
+                    Column {
+                        // Заголовок: плавно уезжает вверх при прокрутке, скрывается в режиме поиска.
+                        AnimatedVisibility(
+                            visible = mode == HomeTopBarMode.Library,
+                            enter = expandVertically(tween(HOME_HEADER_MOTION_MS, easing = HomeHeaderEasing)) + fadeIn(tween(180)),
+                            exit = shrinkVertically(tween(HOME_HEADER_MOTION_MS, easing = HomeHeaderEasing)) + fadeOut(tween(120))
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(subtitleHeight * expandedFraction)
+                                    .layout { measurable, constraints ->
+                                        val placeable = measurable.measure(constraints)
+                                        val offset = scrollBehavior.state.heightOffset.roundToInt()
+                                        val height = (placeable.height + offset).coerceAtLeast(0)
+                                        layout(placeable.width, height) {
+                                            placeable.placeRelative(0, offset)
+                                        }
+                                    }
                                     .clipToBounds()
-                                    .padding(horizontal = 16.dp)
                             ) {
-                                Text(
-                                    "${topBar.songCountPrefix}$sortedSongsCount ${pluralTracks(sortedSongsCount)}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontFamily = font,
-                                    color = scheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.graphicsLayer { alpha = expandedFraction }
+                                HomeTitleRow(
+                                    title = topBar.titleText.ifBlank { "Медиатека" },
+                                    showMenu = showMenu,
+                                    onMenuToggle = onMenuToggle,
+                                    onMenuDismiss = onMenuDismiss,
+                                    onAddFile = onAddFile,
+                                    onScanMusic = onScanMusic,
+                                    onSettings = onSettings,
+                                    font = font,
+                                    modifier = Modifier.onSizeChanged { titleHeightPx = it.height }
                                 )
                             }
                         }
+
+                        // Капсула поиска — закреплена сверху, не участвует в сворачивании.
+                        HomeSearchCapsule(
+                            query = searchQuery,
+                            trackCount = sortedSongsCount,
+                            isSearching = isSearching,
+                            onQueryChange = onSearchQueryChange,
+                            onFocusChange = onSearchFocusChange,
+                            onClose = onSearchClose,
+                            onClear = onClearSearch,
+                            font = font
+                        )
+                        AnimatedVisibility(visible = isSearching && searchQuery.isNotBlank()) {
+                            Text(
+                                text = "Найдено: $searchResultsCount ${pluralTracks(searchResultsCount)}",
+                                modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = font,
+                                color = scheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
@@ -2060,109 +2072,210 @@ fun HomeTopBar(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeSearchField(
-    query: String,
-    resultCount: Int,
-    onQueryChange: (String) -> Unit,
-    onClose: () -> Unit,
-    onClear: () -> Unit,
-    enabled: Boolean,
-    requestFocus: Boolean,
-    font: androidx.compose.ui.text.font.FontFamily
+private fun HomeTitleRow(
+    title: String,
+    showMenu: Boolean,
+    onMenuToggle: () -> Unit,
+    onMenuDismiss: () -> Unit,
+    onAddFile: () -> Unit,
+    onScanMusic: () -> Unit,
+    onSettings: () -> Unit,
+    font: FontFamily,
+    modifier: Modifier = Modifier
 ) {
     val scheme = MaterialTheme.colorScheme
-    val searchFocus = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
-    LaunchedEffect(requestFocus, enabled) {
-        if (requestFocus && enabled) {
-            withFrameNanos { }
-            searchFocus.requestFocus()
-            keyboard?.show()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier
+                .weight(1f)
+                .semantics { heading() },
+            color = scheme.onSurface,
+            fontFamily = font,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Box {
+            FilledTonalIconButton(
+                onClick = onMenuToggle,
+                modifier = Modifier.size(40.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = scheme.surfaceContainerHigh,
+                    contentColor = scheme.onSurfaceVariant
+                )
+            ) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "Меню медиатеки")
+            }
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = onMenuDismiss,
+                shape = MaterialTheme.shapes.large,
+                containerColor = scheme.surfaceContainer
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Добавить файл", fontFamily = font) },
+                    leadingIcon = { Icon(Icons.Rounded.Add, null) },
+                    onClick = { onMenuDismiss(); onAddFile() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Найти всю музыку", fontFamily = font) },
+                    leadingIcon = { Icon(Icons.Rounded.LibraryMusic, null) },
+                    onClick = { onMenuDismiss(); onScanMusic() }
+                )
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = scheme.outlineVariant
+                )
+                DropdownMenuItem(
+                    text = { Text("Настройки", fontFamily = font) },
+                    leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                    onClick = { onMenuDismiss(); onSettings() }
+                )
+            }
         }
     }
+}
 
-    Column(
+/**
+ * Капсула поиска в стиле Material 3: 48dp, полностью скруглённая, surfaceContainerHigh.
+ * Это настоящее поле ввода — фокус на нём включает режим поиска.
+ */
+@Composable
+private fun HomeSearchCapsule(
+    query: String,
+    trackCount: Int,
+    isSearching: Boolean,
+    onQueryChange: (String) -> Unit,
+    onFocusChange: (Boolean) -> Unit,
+    onClose: () -> Unit,
+    onClear: () -> Unit,
+    font: FontFamily
+) {
+    val scheme = MaterialTheme.colorScheme
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    BasicTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        singleLine = true,
+        textStyle = TextStyle(color = scheme.onSurface, fontFamily = font, fontSize = 16.sp),
+        cursorBrush = SolidColor(scheme.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = {
+            keyboard?.hide()
+            focusManager.clearFocus()
+        }),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .padding(top = 8.dp, bottom = 12.dp)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = SearchBarDefaults.inputFieldShape,
-            color = scheme.surfaceContainerHigh
-        ) {
-            SearchBarDefaults.InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = {
-                    keyboard?.hide()
-                    focusManager.clearFocus()
-                },
-                expanded = false,
-                onExpandedChange = {},
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
-                placeholder = {
-                    Text(
-                        "Поиск по медиатеке",
-                        fontFamily = font,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                leadingIcon = {
-                    IconButton(onClick = onClose, enabled = enabled) {
+            .height(48.dp)
+            .onFocusChanged { onFocusChange(it.isFocused) },
+        decorationBox = { innerTextField ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(50))
+                    .background(scheme.surfaceContainerHigh),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isSearching) {
+                    IconButton(onClick = onClose, modifier = Modifier.padding(start = 4.dp)) {
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Закрыть поиск"
+                            contentDescription = "Закрыть поиск",
+                            tint = scheme.onSurface
                         )
                     }
-                },
-                trailingIcon = {
-                    AnimatedContent(
-                        targetState = query.isNotEmpty(),
-                        modifier = Modifier.size(48.dp),
-                        contentAlignment = Alignment.Center,
-                        transitionSpec = {
-                            (fadeIn(tween(120)) + scaleIn(initialScale = 0.8f))
-                                .togetherWith(fadeOut(tween(90)))
-                        },
-                        label = "Clear search"
-                    ) { hasQuery ->
-                        if (hasQuery) {
-                            IconButton(onClick = onClear, enabled = enabled) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Очистить запрос")
-                            }
-                        } else {
-                            Icon(Icons.Rounded.Search, contentDescription = null)
-                        }
+                } else {
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(start = 16.dp, end = 12.dp)
+                            .size(24.dp)
+                    )
+                }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = "Поиск в медиатеке ($trackCount ${pluralTracks(trackCount)})...",
+                            color = scheme.onSurfaceVariant,
+                            fontFamily = font,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                },
-                colors = SearchBarDefaults.inputFieldColors(
-                    focusedTextColor = scheme.onSurface,
-                    unfocusedTextColor = scheme.onSurface,
-                    cursorColor = scheme.primary,
-                    focusedLeadingIconColor = scheme.onSurface,
-                    unfocusedLeadingIconColor = scheme.onSurfaceVariant,
-                    focusedTrailingIconColor = scheme.onSurfaceVariant,
-                    unfocusedTrailingIconColor = scheme.onSurfaceVariant
-                )
-            )
+                    innerTextField()
+                }
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = onClear) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "Очистить запрос",
+                            tint = scheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.width(16.dp))
+                }
+            }
         }
-        Text(
-            text = if (query.isBlank()) {
-                "Название, исполнитель или альбом"
-            } else {
-                "Найдено: $resultCount ${pluralTracks(resultCount)}"
-            },
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = font,
-            color = scheme.onSurfaceVariant
+    )
+}
+
+/** Ряд быстрых действий над списком: «Перемешать» + текущая сортировка. */
+@Composable
+private fun LibraryActionsRow(
+    sortOrder: com.musicplayer.data.SortOrder,
+    onShuffle: () -> Unit,
+    onSort: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val font = LocalAppFontFamily.current
+    val sortOption = librarySortOptions.first { it.order == sortOrder }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilledTonalButton(
+            onClick = onShuffle,
+            modifier = Modifier.height(40.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = scheme.primaryContainer,
+                contentColor = scheme.onPrimaryContainer
+            )
+        ) {
+            Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Перемешать", fontFamily = font, fontWeight = FontWeight.Medium)
+        }
+        AssistChip(
+            onClick = onSort,
+            modifier = Modifier.height(40.dp),
+            label = { Text(sortOption.title, fontFamily = font, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            leadingIcon = { Icon(Icons.Rounded.Sort, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            shape = RoundedCornerShape(50),
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = scheme.surfaceContainerHigh,
+                labelColor = scheme.onSurface,
+                leadingIconContentColor = scheme.onSurfaceVariant
+            ),
+            border = null
         )
     }
 }
