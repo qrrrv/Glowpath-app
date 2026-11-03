@@ -75,7 +75,7 @@ object OnlineSearchRepository {
         OnlineSearchPayload(songs = resolved.values.toList(), albums = emptyList())
     }
 
-    private fun resolveTrack(track: CatalogTrack): OnlineSong? {
+    private suspend fun resolveTrack(track: CatalogTrack): OnlineSong? {
         val match = try {
             HitmosRepository.findBestMatch(track.artist, track.title, track.durationSeconds)
         } catch (e: Exception) {
