@@ -24,6 +24,7 @@ import com.musicplayer.repository.OnlineSearchRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -150,7 +151,17 @@ class OnlineSearchViewModel(application: Application) : AndroidViewModel(applica
             _searchState.value = OnlineSearchState.Loading
             _albumSheetState.value = OnlineAlbumSheetState.Hidden
             try {
-                val payload = OnlineSearchRepository.search(cleanQuery)
+                val jobContext = coroutineContext
+                // The repository publishes batches as soon as Hitmos resolves them, so the
+                // first rows appear without waiting for the whole catalog to be checked.
+                val payload = OnlineSearchRepository.search(cleanQuery) { partial ->
+                    if (partial.isNotEmpty() && jobContext.isActive) {
+                        _searchState.value = OnlineSearchState.Success(
+                            songs = partial,
+                            albums = emptyList()
+                        )
+                    }
+                }
                 // Repository fallbacks can swallow cancellation: never publish an old response.
                 coroutineContext.ensureActive()
                 _searchState.value = if (payload.songs.isEmpty() && payload.albums.isEmpty()) {

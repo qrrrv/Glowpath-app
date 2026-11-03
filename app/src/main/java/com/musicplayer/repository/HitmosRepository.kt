@@ -6,6 +6,7 @@ import com.musicplayer.data.OnlineAlbumSection
 import com.musicplayer.data.OnlineAlbumSummary
 import com.musicplayer.data.OnlineSearchPayload
 import com.musicplayer.data.OnlineSong
+import com.musicplayer.repository.search.TrackMatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Connection
@@ -42,31 +43,31 @@ object HitmosRepository {
     }
 
     /**
-     * Finds a playable Hitmos file for the canonical Deezer artist/title pair.
-     * Fuzzy results are intentionally rejected: this keeps covers, karaoke and
-     * unrelated artists with the same title out of the Deezer result list.
+     * Finds the playable Hitmos file that belongs to the given catalog track.
+     *
+     * The primary query is "artist title"; when Hitmos returns nothing usable the
+     * resolver retries with the title alone. [TrackMatcher] then rejects covers and
+     * unrelated artists while still accepting releases whose suffix differs, e.g.
+     * "Numb - Remastered 2011" or a collaboration credited as "Kizaru, ALBLAK 52".
      */
-    suspend fun findExactTrack(artist: String, title: String): OnlineSong? = withContext(Dispatchers.IO) {
-        if (artist.isBlank() || title.isBlank()) return@withContext null
+    suspend fun findBestMatch(
+        artist: String,
+        title: String,
+        durationSeconds: Int = 0
+    ): OnlineSong? = withContext(Dispatchers.IO) {
+        if (title.isBlank()) return@withContext null
 
-        val payload = runCatching { search("$artist $title") }.getOrNull()
-            ?: return@withContext null
-        val expectedArtist = normalizeForMatch(artist)
-        val expectedTitle = normalizeForMatch(title)
-
-        payload.songs.firstOrNull { candidate ->
-            candidate.downloadUrl.isNotBlank() &&
-                normalizeForMatch(candidate.artist) == expectedArtist &&
-                normalizeForMatch(candidate.title) == expectedTitle
+        val queries = buildList {
+            if (artist.isNotBlank()) add(artist + " " + title)
+            add(title)
         }
+        for (query in queries) {
+            val payload = runCatching { search(query) }.getOrNull() ?: continue
+            val match = TrackMatcher.bestMatch(payload.songs, artist, title, durationSeconds)
+            if (match != null) return@withContext match
+        }
+        null
     }
-
-    private fun normalizeForMatch(value: String): String = value
-        .lowercase()
-        .replace('ё', 'е')
-        .replace(Regex("[^\\p{L}\\p{Nd}]+"), " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
 
     suspend fun fetchAlbumDetail(albumUrl: String): OnlineAlbumDetail = withContext(Dispatchers.IO) {
         val (doc, baseUrl) = fetchDocument(albumUrl)
