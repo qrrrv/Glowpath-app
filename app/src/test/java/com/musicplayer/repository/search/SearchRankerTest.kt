@@ -58,9 +58,11 @@ class SearchRankerTest {
         val ranked = SearchRanker.rank(
             "мокрые кроссы",
             listOf(
-                track("KSYNY", "МОКРЫЕ КРОССЫ", popularity = 355_000, position = 0),
-                track("Тима Белорусских", "Мокрые кроссы", popularity = 385_166, position = 1),
-                track("SokolBeats", "Мокрые кроссы", popularity = 40_000, position = 2)
+                // Positions and fan counts mirror the live catalog: the original leads
+                // the Deezer page, the covers trail behind with far fewer listeners.
+                track("KSYNY", "МОКРЫЕ КРОССЫ", popularity = 355_000, fans = 4_200, position = 7),
+                track("Тима Белорусских", "Мокрые кроссы", popularity = 385_166, fans = 186_005, position = 0),
+                track("SokolBeats", "Мокрые кроссы", popularity = 40_000, fans = 900, position = 10)
             )
         )
 
