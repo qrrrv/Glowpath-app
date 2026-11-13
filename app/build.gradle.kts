@@ -127,6 +127,9 @@ dependencies {
     implementation("dev.chrisbanes.haze:haze:1.3.1")
     implementation("dev.chrisbanes.haze:haze-materials:1.3.1")
 
+    // Liquid Glass — стеклянное меню с рефракцией (JitPack)
+    implementation("com.github.QWEA0:liquidglass:v2.0.11")
+
     // Lottie — JSON анимации
     implementation("com.airbnb.android:lottie-compose:6.4.0")
 

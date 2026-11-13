@@ -19,6 +19,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") } // Liquid Glass (QWEA0/Liquid-Glass-Android)
     }
 }
 

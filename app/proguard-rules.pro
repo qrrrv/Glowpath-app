@@ -21,3 +21,8 @@
 
 # Material Color Utilities (HCT) лежит в исходниках проекта и вызывается статически
 -keep class com.google.material.color.** { *; }
+
+# Liquid Glass: JNI-классы и необязательные зависимости (ViewPager2/Material — compileOnly в библиотеке)
+-keep class com.example.liquidglass.** { *; }
+-dontwarn com.example.liquidglass.**
+-dontwarn androidx.viewpager2.**

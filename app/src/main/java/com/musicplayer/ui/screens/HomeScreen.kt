@@ -16,6 +16,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import com.musicplayer.ui.components.GlassMenuItem
+import com.musicplayer.ui.components.LiquidGlassMenu
+import com.musicplayer.ui.components.LiquidGlassMenuState
+import com.musicplayer.ui.components.liquidGlassAnchor
+import com.musicplayer.ui.components.rememberLiquidGlassMenuState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -237,7 +242,8 @@ fun HomeScreen(
     val songColors      by viewModel.songColors.collectAsState()
     val settings        by viewModel.settings.collectAsState()
     val topBar          by viewModel.topBarSettings.collectAsState()
-    var showMenu        by remember { mutableStateOf(false) }
+    val glassMenu       = rememberLiquidGlassMenuState()
+    var showMenu        by glassMenu::expanded
     var showSortSheet   by remember { mutableStateOf(false) }
     var searchQuery     by rememberSaveable { mutableStateOf("") }
     var isSearching     by rememberSaveable { mutableStateOf(false) }
@@ -414,6 +420,7 @@ fun HomeScreen(
 
 
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         // Шапка и список в начальном состоянии одного цвета — без «ступеньки» под заголовком
@@ -445,18 +452,8 @@ fun HomeScreen(
                     val toDeleteIds = selectedIds.toSet()
                     songsToDelete = songs.filter { it.id in toDeleteIds }
                 },
-                showMenu         = showMenu,
-                onMenuToggle     = { showMenu = !showMenu },
-                onMenuDismiss    = { showMenu = false },
-                onAddFile        = { showMenu = false; fileLauncher.launch(arrayOf("audio/*")) },
-                onScanMusic      = {
-                    showMenu = false
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)
-                        permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_AUDIO)
-                    else
-                        permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-                },
-                onSettings       = { showMenu = false; onSettingsClick() }
+                menuState        = glassMenu,
+                onMenuToggle     = { glassMenu.toggle() }
             )
         }
     ) { padding ->
@@ -642,6 +639,27 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Liquid Glass меню «Медиатеки»: растёт из кнопки «…» в шапке
+    LiquidGlassMenu(
+        state = glassMenu,
+        fontFamily = LocalAppFontFamily.current,
+        items = listOf(
+            GlassMenuItem("Добавить файл", icon = Icons.Rounded.Add) {
+                fileLauncher.launch(arrayOf("audio/*"))
+            },
+            GlassMenuItem("Найти всю музыку", icon = Icons.Rounded.LibraryMusic) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                    permissionLauncher.launch(Manifest.permission.READ_MEDIA_AUDIO)
+                else
+                    permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+            },
+            GlassMenuItem("Настройки", icon = Icons.Rounded.Settings, dividerAbove = true) {
+                onSettingsClick()
+            },
+        )
+    )
     }
 
     if (showSortSheet) {
@@ -1916,12 +1934,8 @@ fun HomeTopBar(
     onClearSelection: () -> Unit,
     onSelectAll: () -> Unit,
     onDeleteSelected: () -> Unit,
-    showMenu: Boolean,
-    onMenuToggle: () -> Unit,
-    onMenuDismiss: () -> Unit,
-    onAddFile: () -> Unit,
-    onScanMusic: () -> Unit,
-    onSettings: () -> Unit
+    menuState: LiquidGlassMenuState,
+    onMenuToggle: () -> Unit
 ) {
     val font = LocalAppFontFamily.current
     val scheme = MaterialTheme.colorScheme
@@ -2032,12 +2046,8 @@ fun HomeTopBar(
                             ) {
                                 HomeTitleRow(
                                     title = topBar.titleText.ifBlank { "Медиатека" },
-                                    showMenu = showMenu,
+                                    menuState = menuState,
                                     onMenuToggle = onMenuToggle,
-                                    onMenuDismiss = onMenuDismiss,
-                                    onAddFile = onAddFile,
-                                    onScanMusic = onScanMusic,
-                                    onSettings = onSettings,
                                     font = font,
                                     modifier = Modifier.onSizeChanged { titleHeightPx = it.height }
                                 )
@@ -2075,12 +2085,8 @@ fun HomeTopBar(
 @Composable
 private fun HomeTitleRow(
     title: String,
-    showMenu: Boolean,
+    menuState: LiquidGlassMenuState,
     onMenuToggle: () -> Unit,
-    onMenuDismiss: () -> Unit,
-    onAddFile: () -> Unit,
-    onScanMusic: () -> Unit,
-    onSettings: () -> Unit,
     font: FontFamily,
     modifier: Modifier = Modifier
 ) {
@@ -2103,43 +2109,17 @@ private fun HomeTitleRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Box {
-            FilledTonalIconButton(
-                onClick = onMenuToggle,
-                modifier = Modifier.size(40.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = scheme.surfaceContainerHigh,
-                    contentColor = scheme.onSurfaceVariant
-                )
-            ) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = "Меню медиатеки")
-            }
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = onMenuDismiss,
-                shape = MaterialTheme.shapes.large,
-                containerColor = scheme.surfaceContainer
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Добавить файл", fontFamily = font) },
-                    leadingIcon = { Icon(Icons.Rounded.Add, null) },
-                    onClick = { onMenuDismiss(); onAddFile() }
-                )
-                DropdownMenuItem(
-                    text = { Text("Найти всю музыку", fontFamily = font) },
-                    leadingIcon = { Icon(Icons.Rounded.LibraryMusic, null) },
-                    onClick = { onMenuDismiss(); onScanMusic() }
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = scheme.outlineVariant
-                )
-                DropdownMenuItem(
-                    text = { Text("Настройки", fontFamily = font) },
-                    leadingIcon = { Icon(Icons.Rounded.Settings, null) },
-                    onClick = { onMenuDismiss(); onSettings() }
-                )
-            }
+        FilledTonalIconButton(
+            onClick = onMenuToggle,
+            modifier = Modifier
+                .size(40.dp)
+                .liquidGlassAnchor(menuState),
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = scheme.surfaceContainerHigh,
+                contentColor = scheme.onSurfaceVariant
+            )
+        ) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "Меню медиатеки")
         }
     }
 }
