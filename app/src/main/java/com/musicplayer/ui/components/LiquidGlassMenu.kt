@@ -1,6 +1,8 @@
 package com.musicplayer.ui.components
 
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -25,7 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,7 +37,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
@@ -43,7 +45,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -51,10 +52,8 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.example.liquidglass.GlassMaterial
 import com.example.liquidglass.LiquidGlassView
 import kotlin.math.min
@@ -94,11 +93,20 @@ data class GlassMenuItem(
 private fun GlassMenuItem.heightDp(): Int =
     (if (subtitle != null) 60 else 48) + (if (dividerAbove) 9 else 0)
 
+private class GlassHolder {
+    var glass: LiquidGlassView? = null
+    var content: ViewGroup? = null
+}
+
 // ───────────────────────── само меню ─────────────────────────
 
 /**
  * Liquid Glass меню, которое вырастает из кнопки с [liquidGlassAnchor].
- * Ставь внутрь Box, который занимает весь экран, ПОСЛЕ основного контента.
+ *
+ * ВАЖНО: само стекло (LiquidGlassView) добавляется НЕ внутрь Compose, а в android.R.id.content
+ * рядом с ComposeView экрана — как «соседний» View поверх него. Если положить стекло внутрь
+ * Compose, оно пытается снять «скриншот» слоя Compose, который в этот момент сам рисуется, и
+ * приложение падает (IllegalStateException: Recording currently in progress).
  */
 @Composable
 fun LiquidGlassMenu(
@@ -110,11 +118,12 @@ fun LiquidGlassMenu(
     fontFamily: FontFamily? = null,
 ) {
     val density = LocalDensity.current
+    val hostView = LocalView.current
     val progress = remember { Animatable(0f) }
     var overLight by remember { mutableStateOf(true) }
-    var origin by remember { mutableStateOf(Offset.Zero) }
     val itemsState = rememberUpdatedState(items)
     val fontState = rememberUpdatedState(fontFamily)
+    val holder = remember { GlassHolder() }
 
     // Открытие: пружина с перелётом (капля «выстреливает» и оседает).
     // Закрытие: плавное схлопывание обратно в кнопку.
@@ -127,94 +136,123 @@ fun LiquidGlassMenu(
     }
     BackHandler(enabled = state.expanded) { state.dismiss() }
 
-    // Стекло снимает фон с контента Activity
-    val hostView = LocalView.current
-    val backdrop: View = remember(hostView) {
-        hostView.rootView.findViewById(android.R.id.content) ?: hostView.rootView
-    }
+    val p = progress.value
+    val anchor = state.anchor
+    val visible = (state.expanded || p > 0.001f) && anchor != Rect.Zero
+    if (!visible) return
 
-    // Внешний Box только измеряет своё положение (касания не перехватывает)
+    // Прозрачная подложка: тап вне меню закрывает его
     Box(
         modifier
             .fillMaxSize()
-            .onGloballyPositioned { origin = it.positionInRoot() }
-    ) {
-        val p = progress.value
-        val anchor = state.anchor.translate(-origin.x, -origin.y)
-        val visible = (state.expanded || p > 0.001f) && state.anchor != Rect.Zero
+            .pointerInput(Unit) { detectTapGestures { state.dismiss() } }
+    )
 
-        if (visible) {
-            val menuHeight = (items.sumOf { it.heightDp() } + 16).dp
-            val menuWpx = with(density) { menuWidth.toPx() }
-            val menuHpx = with(density) { menuHeight.toPx() }
-            val btnRadius = min(anchor.width, anchor.height) / 2f
-            val menuRadius = with(density) { cornerRadius.toPx() }
+    // Создаём стекло и кладём его в content Activity ПОВЕРХ ComposeView
+    DisposableEffect(hostView) {
+        val content = hostView.rootView.findViewById<ViewGroup>(android.R.id.content)
+        if (content == null) {
+            onDispose { }
+        } else {
+            // Фон = прямой ребёнок content, внутри которого живёт Compose (сосед стекла, не предок)
+            var backdrop: View = hostView
+            while (backdrop.parent is View && backdrop.parent !== content) {
+                backdrop = backdrop.parent as View
+            }
 
-            // Геометрия капли: правый верхний угол закреплён на кнопке
-            val wPx = (anchor.width + (menuWpx - anchor.width) * p).coerceAtLeast(1f)
-            val hPx = (anchor.height + (menuHpx - anchor.height) * p).coerceAtLeast(1f)
-            val leftPx = anchor.right - wPx
-            val rPx = btnRadius + (menuRadius - btnRadius) * p.coerceIn(0f, 1f)
+            val glass = LiquidGlassView(hostView.context)
+            glass.backdropSource = backdrop
+            glass.enableDynamicBackground = true   // ОБЯЗАТЕЛЬНО: стекло двигается
+            glass.material = GlassMaterial.REGULAR
+            glass.bevelWidth = with(density) { 22.dp.toPx() }
+            glass.refractionHeight = with(density) { 14.dp.toPx() }
+            glass.refractionFalloff = 2f
+            glass.dispersionStrength = 0.08f
+            glass.enableSensorHighlight = true
+            glass.enableAdaptiveTint = true
+            glass.setGlassTint(android.graphics.Color.WHITE, 0.18f)
+            glass.enablePressEffect = false
+            glass.collectFrameStats = false
+            // слушатель вызывается во время отрисовки — состояние Compose меняем отложенно
+            glass.glassAppearanceListener = { isOverLight -> glass.post { overLight = isOverLight } }
 
-            // Прозрачная подложка: тап вне меню закрывает его
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) { detectTapGestures { state.dismiss() } }
-            )
-
-            AndroidView(
-                modifier = Modifier
-                    .offset { IntOffset(leftPx.roundToInt(), anchor.top.roundToInt()) }
-                    .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() }),
-                factory = { ctx ->
-                    val glass = LiquidGlassView(ctx)
-                    glass.backdropSource = backdrop
-                    glass.enableDynamicBackground = true   // ОБЯЗАТЕЛЬНО: стекло двигается
-                    glass.material = GlassMaterial.REGULAR
-                    glass.bevelWidth = with(density) { 22.dp.toPx() }
-                    glass.refractionHeight = with(density) { 14.dp.toPx() }
-                    glass.refractionFalloff = 2f
-                    glass.dispersionStrength = 0.08f
-                    glass.enableSensorHighlight = true
-                    glass.enableAdaptiveTint = true
-                    glass.setGlassTint(android.graphics.Color.WHITE, 0.18f)
-                    glass.enablePressEffect = false
-                    glass.collectFrameStats = false
-                    glass.glassAppearanceListener = { isOverLight -> overLight = isOverLight }
-
-                    // Контент кладём ВНУТРЬ стекла — так он не попадает в захват фона
-                    val content = ComposeView(ctx).apply {
-                        setViewCompositionStrategy(
-                            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
-                        )
-                        setContent {
-                            MenuContent(
-                                items = { itemsState.value },
-                                progress = { progress.value },
-                                overLight = { overLight },
-                                fontFamily = { fontState.value },
-                                width = menuWidth,
-                                height = menuHeight,
-                                onItemClick = { item ->
-                                    state.dismiss()
-                                    item.onClick()
-                                },
-                            )
-                        }
-                    }
-                    glass.addView(
-                        content,
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                        )
+            // Контент кладём ВНУТРЬ стекла — так он не попадает в захват фона
+            val composeContent = ComposeView(hostView.context).apply {
+                setViewCompositionStrategy(
+                    ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+                )
+                setContent {
+                    MenuContent(
+                        items = { itemsState.value },
+                        progress = { progress.value },
+                        overLight = { overLight },
+                        fontFamily = { fontState.value },
+                        width = menuWidth,
+                        onItemClick = { item ->
+                            state.dismiss()
+                            item.onClick()
+                        },
                     )
-                    glass
-                },
-                update = { glass -> glass.cornerRadius = rPx },
+                }
+            }
+            glass.addView(
+                composeContent,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                )
             )
+
+            content.addView(
+                glass,
+                FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.START)
+            )
+            holder.glass = glass
+            holder.content = content
+
+            onDispose {
+                content.removeView(glass)
+                holder.glass = null
+                holder.content = null
+            }
         }
+    }
+
+    // Каждый кадр анимации: ставим позицию, размер и скругление «капли»
+    SideEffect {
+        val glass = holder.glass ?: return@SideEffect
+        val content = holder.content ?: return@SideEffect
+
+        val menuWpx = with(density) { menuWidth.toPx() }
+        val menuHpx = with(density) { (items.sumOf { it.heightDp() } + 16).dp.toPx() }
+        val menuRadius = with(density) { cornerRadius.toPx() }
+        val btnRadius = min(anchor.width, anchor.height) / 2f
+
+        // Правый верхний угол закреплён на кнопке
+        val wPx = (anchor.width + (menuWpx - anchor.width) * p).coerceAtLeast(1f)
+        val hPx = (anchor.height + (menuHpx - anchor.height) * p).coerceAtLeast(1f)
+        val leftPx = anchor.right - wPx
+        val rPx = btnRadius + (menuRadius - btnRadius) * p.coerceIn(0f, 1f)
+
+        // Координаты Compose-корня → координаты content
+        val hostPos = IntArray(2)
+        val contentPos = IntArray(2)
+        hostView.getLocationOnScreen(hostPos)
+        content.getLocationOnScreen(contentPos)
+        val offX = hostPos[0] - contentPos[0]
+        val offY = hostPos[1] - contentPos[1]
+
+        val lp = glass.layoutParams as FrameLayout.LayoutParams
+        val w = wPx.roundToInt()
+        val h = hPx.roundToInt()
+        if (lp.width != w || lp.height != h) {
+            lp.width = w
+            lp.height = h
+            glass.layoutParams = lp
+        }
+        glass.translationX = offX + leftPx
+        glass.translationY = offY + anchor.top
+        glass.cornerRadius = rPx
     }
 }
 
@@ -227,11 +265,12 @@ private fun MenuContent(
     overLight: () -> Boolean,
     fontFamily: () -> FontFamily?,
     width: Dp,
-    height: Dp,
     onItemClick: (GlassMenuItem) -> Unit,
 ) {
     val fg = if (overLight()) Color(0xFF111111) else Color.White
     val font = fontFamily()
+    val list = items()
+    val height = (list.sumOf { it.heightDp() } + 16).dp
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -248,7 +287,7 @@ private fun MenuContent(
                 }
                 .padding(vertical = 8.dp)
         ) {
-            items().forEach { item ->
+            list.forEach { item ->
                 if (item.dividerAbove) {
                     Box(
                         Modifier
