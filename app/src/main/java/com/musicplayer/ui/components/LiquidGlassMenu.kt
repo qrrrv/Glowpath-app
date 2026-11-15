@@ -6,12 +6,15 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +41,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
@@ -113,7 +118,7 @@ fun LiquidGlassMenu(
     state: LiquidGlassMenuState,
     items: List<GlassMenuItem>,
     modifier: Modifier = Modifier,
-    menuWidth: Dp = 220.dp,
+    menuWidth: Dp = 250.dp,
     cornerRadius: Dp = 28.dp,
     fontFamily: FontFamily? = null,
 ) {
@@ -297,12 +302,25 @@ private fun MenuContent(
                             .background(fg.copy(alpha = 0.15f))
                     )
                 }
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val pressBg by animateColorAsState(
+                    targetValue = if (pressed) fg.copy(alpha = 0.14f) else Color.Transparent,
+                    animationSpec = tween(120),
+                    label = "glass item press"
+                )
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        // отступ от краёв + скругление: подсветка не торчит за форму стекла
+                        .padding(horizontal = 8.dp)
                         .height(if (item.subtitle != null) 60.dp else 48.dp)
-                        .clickable { onItemClick(item) }
-                        .padding(horizontal = 20.dp),
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(pressBg)
+                        .clickable(interactionSource = interaction, indication = null) {
+                            onItemClick(item)
+                        }
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (item.icon != null) {
