@@ -58,6 +58,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Экран с текстом ошибки после вылета (отдельный процесс) -->
+        <activity
+            android:name=".CrashReportActivity"
+            android:exported="false"
+            android:process=":crash"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
         <service
             android:name=".service.MusicService"
             android:exported="false"

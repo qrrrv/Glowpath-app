@@ -1,6 +1,9 @@
 package com.musicplayer
 
 import android.app.Application
+import android.content.Intent
+import android.os.Build
+import android.os.Process
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -10,6 +13,7 @@ import com.google.android.material.color.DynamicColors
 import com.musicplayer.utils.MediaMetadataRetrieverPool
 import com.musicplayer.utils.SongCoverFetcher
 import kotlinx.coroutines.Dispatchers
+import kotlin.system.exitProcess
 
 /**
  * Singleton Coil ImageLoader optimised for large music libraries.
@@ -22,11 +26,46 @@ class MusicApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // В процессе ":crash" живёт только экран с текстом ошибки — остальное не запускаем
+        if (isCrashProcess()) return
+        installCrashReporter()
         DynamicColors.applyToActivitiesIfAvailable(this)
         try {
             com.musicplayer.server.NowPlayingHttpServer.start(this)
         } catch (e: Exception) {
             android.util.Log.e("MusicApplication", "Failed to start NowPlaying HTTP server", e)
+        }
+    }
+
+    private fun isCrashProcess(): Boolean {
+        val name = if (Build.VERSION.SDK_INT >= 28) {
+            getProcessName()
+        } else {
+            try { java.io.File("/proc/self/cmdline").readText().trim('\u0000') } catch (e: Exception) { "" }
+        }
+        return name.endsWith(":crash")
+    }
+
+    /** При вылете показывает текст ошибки на экране, чтобы его можно было скопировать. */
+    private fun installCrashReporter() {
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                android.util.Log.e("Crash", "Uncaught exception in ${thread.name}", error)
+                val report = buildString {
+                    append("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
+                    append("${Build.MANUFACTURER} ${Build.MODEL}\n")
+                    append("Thread: ${thread.name}\n\n")
+                    append(android.util.Log.getStackTraceString(error))
+                }.take(60_000)
+                startActivity(
+                    Intent(this, CrashReportActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        .putExtra(CrashReportActivity.EXTRA_TRACE, report)
+                )
+            } catch (_: Throwable) {
+            }
+            Process.killProcess(Process.myPid())
+            exitProcess(10)
         }
     }
 
