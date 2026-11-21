@@ -510,6 +510,11 @@ fun MusicPlayerApp(
                             navController.navigate("artist/" + Uri.encode(next)) { launchSingleTop = true }
                         }
                     },
+                    onOpenAlbum = { albumId ->
+                        if (albumId > 0L) {
+                            navController.navigate("album/" + albumId) { launchSingleTop = true }
+                        }
+                    },
                     onOpenUrl = { url ->
                         if (url.isNotBlank()) {
                             runCatching {
@@ -520,6 +525,21 @@ fun MusicPlayerApp(
                             }
                         }
                     }
+                )
+            }
+
+            composable(
+                "album/{albumId}",
+                enterTransition = { AnimationsApplier.screenEnter(settings.screenTransitionAnim, settings.animParams) },
+                exitTransition  = { AnimationsApplier.screenExit(settings.screenTransitionAnim, settings.animParams) },
+                popEnterTransition  = { AnimationsApplier.screenPopEnter(settings.screenTransitionAnim, settings.animParams) },
+                popExitTransition   = { AnimationsApplier.screenPopExit(settings.screenTransitionAnim, settings.animParams) }
+            ) { entry ->
+                val albumId = entry.arguments?.getString("albumId")?.toLongOrNull() ?: 0L
+                AlbumScreen(
+                    albumId = albumId,
+                    musicViewModel = viewModel,
+                    onBack = { navController.popBackStack() }
                 )
             }
 

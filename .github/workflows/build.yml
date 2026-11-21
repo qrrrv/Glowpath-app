@@ -38,6 +38,7 @@ jobs:
             app/build/reports/search-preview/
             app/build/reports/artist-preview/
             app/build/reports/album-preview/
+            app/build/reports/album-detail-preview/
             app/build/reports/settings-preview/
           if-no-files-found: ignore
 
