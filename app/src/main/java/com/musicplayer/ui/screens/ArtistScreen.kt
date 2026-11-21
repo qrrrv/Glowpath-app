@@ -176,7 +176,7 @@ private fun ArtistPageContent(page: ArtistPage, actions: ArtistActions) {
     val colors = MaterialTheme.colorScheme
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("artist_list"),
         contentPadding = PaddingValues(bottom = 32.dp)
     ) {
         item(key = "hero") { ArtistHero(page.profile) }

@@ -12,7 +12,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -97,8 +99,12 @@ class ArtistScreenTest {
         compose.onAllNodesWithText("Валентин Стрыкало").onFirst().assertIsDisplayed()
         compose.onNodeWithTag("artist_related_title").assertIsDisplayed()
         compose.onNodeWithText("Кровосток").assertIsDisplayed()
+
+        compose.onNodeWithTag("artist_list").performScrollToNode(hasTestTag("artist_videos_title"))
         compose.onNodeWithTag("artist_videos_title").assertIsDisplayed()
         compose.onNodeWithText("Наше лето").assertIsDisplayed()
+
+        compose.onNodeWithTag("artist_list").performScrollToNode(hasTestTag("artist_albums_title"))
         compose.onNodeWithTag("artist_albums_title").assertIsDisplayed()
         compose.onNodeWithText("Синглы").assertIsDisplayed()
     }

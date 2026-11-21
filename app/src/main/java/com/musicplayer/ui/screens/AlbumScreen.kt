@@ -225,7 +225,8 @@ private fun AlbumLoaded(album: AlbumDetail, resolvingTrackId: Long?, actions: Al
                         fontWeight = FontWeight.Bold,
                         fontFamily = font,
                         maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("album_title")
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(

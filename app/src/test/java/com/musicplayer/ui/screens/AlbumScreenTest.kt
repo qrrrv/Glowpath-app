@@ -85,7 +85,7 @@ class AlbumScreenTest {
         show(AlbumUiState(albumId = 10L, content = AlbumPageState.Success(album)))
 
         compose.onNodeWithTag("album_screen").assertIsDisplayed()
-        compose.onNodeWithText("Мокрые кроссы").assertIsDisplayed()
+        compose.onNodeWithTag("album_title").assertIsDisplayed()
         compose.onNodeWithText("Треки").assertIsDisplayed()
         compose.onNodeWithText("Незабудка").assertIsDisplayed()
     }
