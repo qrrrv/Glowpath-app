@@ -75,6 +75,7 @@ import com.musicplayer.ui.components.*
 import com.musicplayer.ui.components.instrumentIconRes
 import com.musicplayer.ui.theme.*
 import androidx.compose.ui.util.lerp as lerpFloat
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -156,13 +157,18 @@ fun PlayerScreen(
     val artworkLayer = rememberGraphicsLayer()
 
     // Полёт обложки «центр экрана → капсула шапки» при включении текста песни и обратно.
-    // Тем же значением гасится реальная обложка в центре (CoverWithLyrics.flightProgress),
-    // поэтому передача между летающим слоем и обложкой бесшовна с обеих сторон.
-    val lyricsFlight by animateFloatAsState(
-        targetValue = if (settings.lyricsOnCover) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f),
-        label = "lyricsCoverFlight"
-    )
+    // Включение: пружина «всасывает» обложку в капсулу, текст проявляется уже после того,
+    // как она ушла из центра. Выключение: сначала гаснет текст и только потом обложка
+    // возвращается — иначе летящая обложка проезжает поверх ещё читаемого текста.
+    val lyricsFlight = remember { Animatable(if (settings.lyricsOnCover) 1f else 0f) }
+    LaunchedEffect(settings.lyricsOnCover) {
+        if (settings.lyricsOnCover) {
+            lyricsFlight.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 430f))
+        } else {
+            delay(90L)
+            lyricsFlight.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = 380f))
+        }
+    }
     // Позиция мини-слота обложки в капсуле шапки (в координатах root) — её сообщает TopBar.
     var capsuleSlotBounds by remember { mutableStateOf<Rect?>(null) }
 
@@ -285,7 +291,7 @@ fun PlayerScreen(
                     viewModel, customArtUri, previousCover, nextCover, requestClose,
                     onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev,
                     swipeProgress, expandedFraction, artworkModifier, lyricsModifier,
-                    songButtons, lyricsFlight, { capsuleSlotBounds = it }, onArtistClick
+                    songButtons, lyricsFlight.value, { capsuleSlotBounds = it }, onArtistClick
                 )
             } else {
                 PlayerQueueHost(
@@ -301,7 +307,7 @@ fun PlayerScreen(
                         viewModel, customArtUri, previousCover, nextCover, requestClose,
                         onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev,
                         swipeProgress, expandedFraction, queueSlots, artworkModifier, lyricsModifier,
-                        songButtons, lyricsFlight, { capsuleSlotBounds = it }, onArtistClick
+                        songButtons, lyricsFlight.value, { capsuleSlotBounds = it }, onArtistClick
                     )
                 }
             }
@@ -347,24 +353,33 @@ fun PlayerScreen(
         // перелёт при выключении. Рисуем захваченный слой обложки (artworkLayer) поверх
         // всего плеера: в центре обложка гаснет по той же пружине, а в капсуле мини-обложка
         // уже стоит на месте — у концов траектории не видно ни «двоения», ни провала.
-        if ((settings.lyricsOnCover || lyricsFlight > 0f) && lyricsFlight < 1f) {
-            Canvas(Modifier.fillMaxSize().graphicsLayer {
-                alpha = if (lyricsFlight < 0.85f) 1f else ((1f - lyricsFlight) / 0.15f).coerceIn(0f, 1f)
-            }) {
+        Canvas(Modifier.fillMaxSize().graphicsLayer {
+            val flight = lyricsFlight.value
+            alpha = when {
+                flight <= 0.001f -> 0f
+                flight < 0.92f -> 1f
+                else -> ((1f - flight) / 0.08f).coerceIn(0f, 1f)
+            }
+        }) {
+                val flight = lyricsFlight.value
+                if (flight <= 0.001f || flight >= 0.999f) return@Canvas
                 val source = artworkBounds?.translate(-parentOrigin)
                 val target = capsuleSlotBounds?.translate(-parentOrigin)
                 if (source != null && target != null && source.width > 0f &&
                     artworkLayer.size.width > 0
                 ) {
-                    val f = lyricsFlight
+                    val f = flight
                     val width = lerpFloat(source.width, target.width, f)
                     val cx = lerpFloat(source.center.x, target.center.x, f)
                     val cy = lerpFloat(source.center.y, target.center.y, f)
                     val left = cx - width / 2f
                     val top = cy - width / 2f
+                    // Круглая капсула шапки: к концу полёта скругление становится радиусом
+                    // слота, поэтому обложка «всасывается» в круг, а не в квадрат.
+                    val targetCorner = minOf(target.width, target.height) / 2f
                     val corner = lerpFloat(
                         minOf(artworkCornerPx * width / source.width, width / 2f),
-                        8.dp.toPx(), f
+                        targetCorner, f
                     )
                     val outline = Path().apply {
                         addRoundRect(RoundRect(left, top, left + width, top + width,
@@ -379,7 +394,6 @@ fun PlayerScreen(
                     }
                 }
             }
-        }
 
         TrackSettingsOverlay(
             visible = showTrackSettings, volume = volume, playbackSpeed = playbackSpeed, song = song,
@@ -543,9 +557,16 @@ private fun PortraitPlayerContent(
     onArtistClick: (String) -> Unit = {},
 ) {
     // Booming: кнопка «Текст» плавно меняет обложку на текст песни (alpha 1→0 / 0→1, 350 мс).
+    // Текст проявляется только после того, как обложка ушла из центра, и гаснет
+    // быстрее, чем возвращается обложка — так на обратном пути не видно текста,
+    // поверх которого проезжает обложка.
     val lyricsProgress by animateFloatAsState(
         targetValue = if (settings.lyricsOnCover) 1f else 0f,
-        animationSpec = tween(BOOMING_ANIM_TIME, easing = BoomingAnimEasing),
+        animationSpec = tween(
+            durationMillis = if (settings.lyricsOnCover) 210 else 110,
+            delayMillis = if (settings.lyricsOnCover) 160 else 0,
+            easing = if (settings.lyricsOnCover) FastOutSlowInEasing else LinearOutSlowInEasing
+        ),
         label = "coverLyricsProgress"
     )
     val toggleLyrics = {
@@ -638,9 +659,16 @@ private fun LandscapePlayerContent(
     onArtistClick: (String) -> Unit = {},
 ) {
     // Booming: кнопка «Текст» плавно меняет обложку на текст песни (alpha 1→0 / 0→1, 350 мс).
+    // Текст проявляется только после того, как обложка ушла из центра, и гаснет
+    // быстрее, чем возвращается обложка — так на обратном пути не видно текста,
+    // поверх которого проезжает обложка.
     val lyricsProgress by animateFloatAsState(
         targetValue = if (settings.lyricsOnCover) 1f else 0f,
-        animationSpec = tween(BOOMING_ANIM_TIME, easing = BoomingAnimEasing),
+        animationSpec = tween(
+            durationMillis = if (settings.lyricsOnCover) 210 else 110,
+            delayMillis = if (settings.lyricsOnCover) 160 else 0,
+            easing = if (settings.lyricsOnCover) FastOutSlowInEasing else LinearOutSlowInEasing
+        ),
         label = "coverLyricsProgress"
     )
     val toggleLyrics = {

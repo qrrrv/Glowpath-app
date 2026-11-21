@@ -122,7 +122,9 @@ fun CoverWithLyrics(
         // Обложка гаснет по пружине ПОЛЁТА (не по кроссфейду Booming): в тот же момент
         // поверх неё рисуется летящий слой (PlayerScreen), и на обратном пути обложка
         // возвращается к alpha = 1 ровно к моменту приземления — без «прыжка яркости».
-        Box(Modifier.graphicsLayer { alpha = 1f - flightProgress }) {
+        // Пока обложка летит, её рисует отдельный слой в PlayerScreen. Здесь она должна
+        // быть полностью скрыта, иначе в кадре две обложки разного размера.
+        Box(Modifier.graphicsLayer { alpha = if (flightProgress <= 0.001f) 1f else 0f }) {
             Box(Modifier.wrapContentSize(Alignment.Center, unbounded = true)) {
                 cover(coverScale)
             }
