@@ -2,6 +2,9 @@
 
 package com.musicplayer.ui.screens
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -275,6 +279,13 @@ private fun ArtistPageContent(page: ArtistPage, actions: ArtistActions) {
 @Composable
 private fun ArtistHero(profile: ArtistProfile) {
     val colors = MaterialTheme.colorScheme
+    // The page arrives with a short growth animation; the artwork settles from a
+    // slight zoom while the title slides up, so the transition keeps moving after the
+    // navigation itself is done.
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        reveal.animateTo(1f, animationSpec = tween(durationMillis = 560, easing = FastOutSlowInEasing))
+    }
 
     Box(Modifier.fillMaxWidth().height(380.dp)) {
         Box(
@@ -288,7 +299,13 @@ private fun ArtistHero(profile: ArtistProfile) {
                     contentDescription = profile.name,
                     contentScale = ContentScale.Crop,
                     alignment = Alignment.TopCenter,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        val progress = reveal.value
+                        val scale = 1.08f - 0.08f * progress
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = 0.35f + 0.65f * progress
+                    }
                 )
             }
         }
@@ -306,6 +323,11 @@ private fun ArtistHero(profile: ArtistProfile) {
             modifier = Modifier.align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(start = 20.dp, end = 20.dp, bottom = 18.dp)
+                .graphicsLayer {
+                    val progress = reveal.value
+                    alpha = progress
+                    translationY = (1f - progress) * 28f
+                }
         ) {
             Text(
                 text = "ИСПОЛНИТЕЛЬ",

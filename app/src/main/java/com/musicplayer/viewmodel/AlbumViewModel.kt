@@ -1,33 +1,45 @@
 package com.musicplayer.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musicplayer.data.AlbumPageState
 import com.musicplayer.data.AlbumTrack
-import com.musicplayer.data.OnlineSong
+import com.musicplayer.data.Song
 import com.musicplayer.repository.AlbumRepository
-import com.musicplayer.repository.HitmosRepository
+import com.musicplayer.repository.OfflineAudio
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
-class AlbumViewModel : ViewModel() {
+class AlbumViewModel(application: Application) : AndroidViewModel(application) {
+
+    sealed class TrackTask {
+        object Resolving : TrackTask()
+        data class Downloading(val progress: Int) : TrackTask()
+    }
 
     private val _state = MutableStateFlow<AlbumPageState>(AlbumPageState.Idle)
     val state: StateFlow<AlbumPageState> = _state.asStateFlow()
 
-    /** Track id currently being resolved against Hitmos. */
-    private val _resolvingTrack = MutableStateFlow<Long?>(null)
-    val resolvingTrack: StateFlow<Long?> = _resolvingTrack.asStateFlow()
+    private val _tasks = MutableStateFlow<Map<Long, TrackTask>>(emptyMap())
+    val tasks: StateFlow<Map<Long, TrackTask>> = _tasks.asStateFlow()
+
+    private val _savedTracks = MutableStateFlow<Set<Long>>(emptySet())
+    val savedTracks: StateFlow<Set<Long>> = _savedTracks.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
     private var job: Job? = null
     private var currentAlbumId: Long = 0L
+    private var albumCover: String = ""
+    private var albumTitle: String = ""
 
     fun open(albumId: Long) {
         if (albumId <= 0L) return
@@ -44,21 +56,65 @@ class AlbumViewModel : ViewModel() {
         _message.value = null
     }
 
-    fun play(track: AlbumTrack, onReady: (OnlineSong) -> Unit) {
-        if (_resolvingTrack.value != null) return
-        _resolvingTrack.value = track.id
+    /**
+     * Resolves the track on Hitmos, stores the audio in the app cache and hands a local
+     * file to the player. Streaming the remote URL would block the media player and
+     * fail on Hitmos headers, which is what looked like an endless spinner.
+     */
+    fun play(track: AlbumTrack, onReady: (Song) -> Unit) {
+        if (_tasks.value.containsKey(track.id)) return
+        val context = getApplication<Application>()
         viewModelScope.launch {
-            val song = runCatching {
-                HitmosRepository.findBestMatch(track.artist, track.title, track.durationSeconds)
-            }.getOrNull()
-            coroutineContext.ensureActive()
-            _resolvingTrack.value = null
-            if (song == null) {
-                _message.value = "Не удалось найти файл для «" + track.title + "»"
-            } else {
-                onReady(song)
+            setTask(track.id, TrackTask.Resolving)
+            try {
+                val file = resolveToFile(track, OfflineAudio.cacheFile(context, track))
+                if (file != null) {
+                    onReady(OfflineAudio.buildSong(file, track, albumCover, albumTitle))
+                } else {
+                    _message.value = "Не удалось найти файл для «" + track.title + "»"
+                }
+            } finally {
+                clearTask(track.id)
             }
         }
+    }
+
+    /** Same audio, but kept in the app storage and added to the library. */
+    fun download(track: AlbumTrack, onSaved: (Song) -> Unit) {
+        if (_tasks.value.containsKey(track.id)) return
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            setTask(track.id, TrackTask.Resolving)
+            try {
+                val file = resolveToFile(track, OfflineAudio.libraryFile(context, track))
+                if (file != null) {
+                    _savedTracks.update { it + track.id }
+                    onSaved(OfflineAudio.buildSong(file, track, albumCover, albumTitle))
+                    _message.value = "«" + track.title + "» сохранён в приложении"
+                } else {
+                    _message.value = "Не удалось скачать «" + track.title + "»"
+                }
+            } finally {
+                clearTask(track.id)
+            }
+        }
+    }
+
+    private suspend fun resolveToFile(track: AlbumTrack, target: File): File? {
+        if (target.exists() && target.length() > 64 * 1024L) return target
+        val online = OfflineAudio.resolve(track) ?: return null
+        val ok = OfflineAudio.download(online, target) { percent ->
+            setTask(track.id, TrackTask.Downloading(percent))
+        }
+        return if (ok) target else null
+    }
+
+    private fun setTask(trackId: Long, task: TrackTask) {
+        _tasks.update { it + (trackId to task) }
+    }
+
+    private fun clearTask(trackId: Long) {
+        _tasks.update { it - trackId }
     }
 
     private fun load(albumId: Long) {
@@ -67,10 +123,12 @@ class AlbumViewModel : ViewModel() {
         job = viewModelScope.launch {
             val album = runCatching { AlbumRepository.load(albumId) }.getOrNull()
             coroutineContext.ensureActive()
-            _state.value = if (album == null) {
-                AlbumPageState.Empty(albumId)
+            if (album == null) {
+                _state.value = AlbumPageState.Empty(albumId)
             } else {
-                AlbumPageState.Success(album)
+                albumCover = album.coverUrl
+                albumTitle = album.title
+                _state.value = AlbumPageState.Success(album)
             }
         }
     }

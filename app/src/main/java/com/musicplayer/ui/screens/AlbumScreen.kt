@@ -2,7 +2,6 @@
 
 package com.musicplayer.ui.screens
 
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +23,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,8 +60,6 @@ import coil.compose.AsyncImage
 import com.musicplayer.data.AlbumDetail
 import com.musicplayer.data.AlbumPageState
 import com.musicplayer.data.AlbumTrack
-import com.musicplayer.data.OnlineSong
-import com.musicplayer.data.Song
 import com.musicplayer.ui.theme.LocalAppFontFamily
 import com.musicplayer.viewmodel.AlbumViewModel
 import com.musicplayer.viewmodel.MusicViewModel
@@ -69,13 +68,15 @@ import java.util.Locale
 internal data class AlbumUiState(
     val albumId: Long = 0L,
     val content: AlbumPageState = AlbumPageState.Idle,
-    val resolvingTrackId: Long? = null
+    val tasks: Map<Long, AlbumViewModel.TrackTask> = emptyMap(),
+    val savedTracks: Set<Long> = emptySet()
 )
 
 internal data class AlbumActions(
     val onBack: () -> Unit = {},
     val onRetry: () -> Unit = {},
-    val onPlay: (AlbumTrack) -> Unit = {}
+    val onPlay: (AlbumTrack) -> Unit = {},
+    val onDownload: (AlbumTrack) -> Unit = {}
 )
 
 @Composable
@@ -86,7 +87,8 @@ fun AlbumScreen(
     viewModel: AlbumViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val resolving by viewModel.resolvingTrack.collectAsState()
+    val tasks by viewModel.tasks.collectAsState()
+    val savedTracks by viewModel.savedTracks.collectAsState()
     val message by viewModel.message.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -100,13 +102,17 @@ fun AlbumScreen(
     }
 
     AlbumContent(
-        state = AlbumUiState(albumId = albumId, content = state, resolvingTrackId = resolving),
+        state = AlbumUiState(
+            albumId = albumId,
+            content = state,
+            tasks = tasks,
+            savedTracks = savedTracks
+        ),
         actions = AlbumActions(
             onBack = onBack,
             onRetry = viewModel::retry,
-            onPlay = { track ->
-                viewModel.play(track) { online -> musicViewModel.playSong(online.toPlayableSong()) }
-            }
+            onPlay = { track -> viewModel.play(track) { song -> musicViewModel.playSong(song) } },
+            onDownload = { track -> viewModel.download(track) { song -> musicViewModel.addDownloadedSong(song) } }
         ),
         snackbarHostState = snackbarHostState
     )
@@ -144,7 +150,12 @@ internal fun AlbumContent(
             when (val content = state.content) {
                 AlbumPageState.Idle, is AlbumPageState.Loading -> AlbumLoading()
                 is AlbumPageState.Empty -> AlbumEmpty(onRetry = actions.onRetry)
-                is AlbumPageState.Success -> AlbumLoaded(content.album, state.resolvingTrackId, actions)
+                is AlbumPageState.Success -> AlbumLoaded(
+                    album = content.album,
+                    tasks = state.tasks,
+                    savedTracks = state.savedTracks,
+                    actions = actions
+                )
             }
         }
     }
@@ -190,7 +201,12 @@ private fun AlbumEmpty(onRetry: () -> Unit) {
 }
 
 @Composable
-private fun AlbumLoaded(album: AlbumDetail, resolvingTrackId: Long?, actions: AlbumActions) {
+private fun AlbumLoaded(
+    album: AlbumDetail,
+    tasks: Map<Long, AlbumViewModel.TrackTask>,
+    savedTracks: Set<Long>,
+    actions: AlbumActions
+) {
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
 
@@ -267,29 +283,40 @@ private fun AlbumLoaded(album: AlbumDetail, resolvingTrackId: Long?, actions: Al
             AlbumTrackRow(
                 index = index + 1,
                 track = track,
-                resolving = resolvingTrackId == track.id,
-                onClick = { actions.onPlay(track) }
+                task = tasks[track.id],
+                saved = savedTracks.contains(track.id),
+                onPlay = { actions.onPlay(track) },
+                onDownload = { actions.onDownload(track) }
             )
         }
     }
 }
 
 @Composable
-private fun AlbumTrackRow(index: Int, track: AlbumTrack, resolving: Boolean, onClick: () -> Unit) {
+private fun AlbumTrackRow(
+    index: Int,
+    track: AlbumTrack,
+    task: AlbumViewModel.TrackTask?,
+    saved: Boolean,
+    onPlay: () -> Unit,
+    onDownload: () -> Unit
+) {
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
+    val downloading = task as? AlbumViewModel.TrackTask.Downloading
+
     Row(
         modifier = Modifier.fillMaxWidth()
-            .clickable(onClickLabel = "Воспроизвести " + track.title, onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .clickable(onClickLabel = "Воспроизвести " + track.title, onClick = onPlay)
+            .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = index.toString(),
             style = MaterialTheme.typography.labelLarge,
             color = colors.onSurfaceVariant,
-            modifier = Modifier.width(24.dp),
+            modifier = Modifier.width(22.dp),
             textAlign = TextAlign.Center,
             fontFamily = font
         )
@@ -318,9 +345,39 @@ private fun AlbumTrackRow(index: Int, track: AlbumTrack, resolving: Boolean, onC
             color = colors.onSurfaceVariant,
             fontFamily = font
         )
-        Surface(color = colors.secondaryContainer, shape = CircleShape, modifier = Modifier.size(36.dp)) {
+
+        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            when {
+                downloading != null -> CircularProgressIndicator(
+                    progress = { downloading.progress / 100f },
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.primary
+                )
+                saved -> Icon(
+                    Icons.Rounded.CheckCircle,
+                    contentDescription = "Скачано",
+                    tint = colors.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                else -> IconButton(
+                    onClick = onDownload,
+                    enabled = task == null,
+                    modifier = Modifier.size(40.dp).testTag("album_download_" + track.id)
+                ) {
+                    Icon(
+                        Icons.Rounded.Download,
+                        contentDescription = "Скачать " + track.title,
+                        tint = colors.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+
+        Surface(color = colors.secondaryContainer, shape = CircleShape, modifier = Modifier.size(38.dp)) {
             Box(contentAlignment = Alignment.Center) {
-                if (resolving) {
+                if (task != null) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
@@ -353,13 +410,3 @@ internal fun formatDuration(seconds: Int): String {
     if (seconds <= 0) return "--:--"
     return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60)
 }
-
-private fun OnlineSong.toPlayableSong(): Song = Song(
-    id = downloadUrl.hashCode().toLong() and 0xFFFFFFFFL,
-    title = title.ifBlank { "Без названия" },
-    artist = artist,
-    album = "Онлайн",
-    duration = 0L,
-    uri = Uri.parse(downloadUrl),
-    albumArtUri = coverUrl.takeIf { it.isNotBlank() }?.let(Uri::parse)
-)

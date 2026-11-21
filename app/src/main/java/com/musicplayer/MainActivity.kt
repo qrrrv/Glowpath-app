@@ -495,10 +495,30 @@ fun MusicPlayerApp(
 
             composable(
                 "artist/{name}",
-                enterTransition = { AnimationsApplier.screenEnter(settings.screenTransitionAnim, settings.animParams) },
-                exitTransition  = { AnimationsApplier.screenExit(settings.screenTransitionAnim, settings.animParams) },
-                popEnterTransition  = { AnimationsApplier.screenPopEnter(settings.screenTransitionAnim, settings.animParams) },
-                popExitTransition   = { AnimationsApplier.screenPopExit(settings.screenTransitionAnim, settings.animParams) }
+                // Opening an artist from the player reads as the page growing out of the
+                // player: soft spring slide from the bottom, quick fade, and the hero art
+                // settles from a slight zoom.
+                enterTransition = {
+                    fadeIn(tween(240)) + slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        initialOffsetY = { it / 5 }
+                    )
+                },
+                exitTransition = {
+                    fadeOut(tween(160)) + scaleOut(targetScale = 0.97f, animationSpec = tween(200))
+                },
+                popEnterTransition = {
+                    fadeIn(tween(200)) + scaleIn(initialScale = 0.98f, animationSpec = tween(200))
+                },
+                popExitTransition = {
+                    fadeOut(tween(180)) + slideOutVertically(
+                        animationSpec = tween(240),
+                        targetOffsetY = { it / 6 }
+                    )
+                }
             ) { entry ->
                 val appContext = LocalContext.current
                 val artistName = Uri.decode(entry.arguments?.getString("name").orEmpty())

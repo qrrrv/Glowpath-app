@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -25,6 +26,7 @@ import com.musicplayer.data.AlbumTrack
 import com.musicplayer.data.AppTheme
 import com.musicplayer.ui.theme.LocalAppFontFamily
 import com.musicplayer.ui.theme.MusicPlayerTheme
+import com.musicplayer.viewmodel.AlbumViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -43,6 +45,7 @@ class AlbumScreenTest {
 
     private var ui by mutableStateOf(AlbumUiState())
     private val played = mutableListOf<String>()
+    private val downloaded = mutableListOf<String>()
 
     private val album = AlbumDetail(
         id = 10L,
@@ -71,7 +74,8 @@ class AlbumScreenTest {
                             actions = AlbumActions(
                                 onBack = {},
                                 onRetry = {},
-                                onPlay = { played += it.title }
+                                onPlay = { played += it.title },
+                                onDownload = { downloaded += it.title }
                             )
                         )
                     }
@@ -100,6 +104,28 @@ class AlbumScreenTest {
     }
 
     @Test
+    fun downloadButtonKeepsTrackInTheApp() {
+        show(AlbumUiState(albumId = 10L, content = AlbumPageState.Success(album)))
+
+        compose.onNodeWithTag("album_download_102").performClick()
+
+        assertEquals(listOf("Мокрые кроссы (Remix)"), downloaded)
+    }
+
+    @Test
+    fun savedTrackShowsTheCheckMark() {
+        show(
+            AlbumUiState(
+                albumId = 10L,
+                content = AlbumPageState.Success(album),
+                savedTracks = setOf(101L)
+            )
+        )
+
+        compose.onNodeWithContentDescription("Скачано").assertIsDisplayed()
+    }
+
+    @Test
     fun failureStateOffersRetry() {
         show(AlbumUiState(albumId = 10L, content = AlbumPageState.Empty(10L)))
 
@@ -109,7 +135,14 @@ class AlbumScreenTest {
 
     @Test
     fun renderAlbumDetail() {
-        show(AlbumUiState(albumId = 10L, content = AlbumPageState.Success(album)))
+        show(
+            AlbumUiState(
+                albumId = 10L,
+                content = AlbumPageState.Success(album),
+                tasks = mapOf(102L to AlbumViewModel.TrackTask.Downloading(42)),
+                savedTracks = setOf(103L)
+            )
+        )
         compose.waitForIdle()
         compose.runOnIdle {
             val view = compose.activity.findViewById<View>(android.R.id.content)

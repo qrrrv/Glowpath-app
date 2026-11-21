@@ -9,6 +9,7 @@ import com.musicplayer.data.OnlineSong
 import com.musicplayer.repository.search.TrackMatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jsoup.Connection
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -57,16 +58,22 @@ object HitmosRepository {
     ): OnlineSong? = withContext(Dispatchers.IO) {
         if (title.isBlank()) return@withContext null
 
-        val queries = buildList {
-            if (artist.isNotBlank()) add(artist + " " + title)
-            add(title)
+        // Hitmos can answer slowly or reject a mirror; never let one lookup hold the UI
+        // for minutes. The first query is the precise one, the second is a fallback.
+        val primary = withTimeoutOrNull(12_000L) {
+            runCatching { search(artist.trim() + " " + title) }.getOrNull()
         }
-        for (query in queries) {
-            val payload = runCatching { search(query) }.getOrNull() ?: continue
-            val match = TrackMatcher.bestMatch(payload.songs, artist, title, durationSeconds)
-            if (match != null) return@withContext match
+        if (primary != null) {
+            TrackMatcher.bestMatch(primary.songs, artist, title, durationSeconds)?.let {
+                return@withContext it
+            }
+            if (primary.songs.isEmpty()) return@withContext null
         }
-        null
+
+        val fallback = withTimeoutOrNull(10_000L) {
+            runCatching { search(title) }.getOrNull()
+        } ?: return@withContext null
+        TrackMatcher.bestMatch(fallback.songs, artist, title, durationSeconds)
     }
 
     suspend fun fetchAlbumDetail(albumUrl: String): OnlineAlbumDetail = withContext(Dispatchers.IO) {
@@ -104,7 +111,7 @@ object HitmosRepository {
             .header("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
             .header("Cache-Control", "no-cache")
             .header("Pragma", "no-cache")
-            .timeout(15_000)
+            .timeout(8_000)
             .followRedirects(true)
     }
 
