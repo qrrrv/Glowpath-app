@@ -60,6 +60,8 @@ import coil.compose.AsyncImage
 import com.musicplayer.data.AlbumDetail
 import com.musicplayer.data.AlbumPageState
 import com.musicplayer.data.AlbumTrack
+import com.musicplayer.ui.components.ExpressiveLoadingIndicator
+import com.musicplayer.ui.components.TrackProgressRing
 import com.musicplayer.ui.theme.LocalAppFontFamily
 import com.musicplayer.viewmodel.AlbumViewModel
 import com.musicplayer.viewmodel.MusicViewModel
@@ -279,10 +281,10 @@ private fun AlbumLoaded(
             )
         }
 
-        itemsIndexed(album.tracks, key = { _, track -> track.id }) { index, track ->
+        itemsIndexed(album.tracks, key = { _, track -> track.id }) { _, track ->
             AlbumTrackRow(
-                index = index + 1,
                 track = track,
+                coverUrl = album.coverUrl,
                 task = tasks[track.id],
                 saved = savedTracks.contains(track.id),
                 onPlay = { actions.onPlay(track) },
@@ -294,8 +296,8 @@ private fun AlbumLoaded(
 
 @Composable
 private fun AlbumTrackRow(
-    index: Int,
     track: AlbumTrack,
+    coverUrl: String,
     task: AlbumViewModel.TrackTask?,
     saved: Boolean,
     onPlay: () -> Unit,
@@ -309,18 +311,25 @@ private fun AlbumTrackRow(
     Row(
         modifier = Modifier.fillMaxWidth()
             .clickable(onClickLabel = "Воспроизвести " + track.title, onClick = onPlay)
-            .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = index.toString(),
-            style = MaterialTheme.typography.labelLarge,
-            color = colors.onSurfaceVariant,
-            modifier = Modifier.width(22.dp),
-            textAlign = TextAlign.Center,
-            fontFamily = font
-        )
+        Box(
+            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(14.dp))
+                .background(colors.surfaceContainerHighest),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Album, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(22.dp))
+            if (coverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 text = track.title,
@@ -349,10 +358,14 @@ private fun AlbumTrackRow(
 
         Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
             when {
-                downloading != null -> CircularProgressIndicator(
-                    progress = { downloading.progress / 100f },
-                    modifier = Modifier.size(22.dp),
-                    strokeWidth = 2.dp,
+                downloading != null -> TrackProgressRing(
+                    progress = downloading.progress / 100f,
+                    modifier = Modifier.size(24.dp),
+                    color = colors.primary,
+                    trackColor = colors.surfaceContainerHighest
+                )
+                task != null && !task.playback -> ExpressiveLoadingIndicator(
+                    size = 20.dp,
                     color = colors.primary
                 )
                 saved -> Icon(
@@ -379,11 +392,7 @@ private fun AlbumTrackRow(
         Surface(color = colors.secondaryContainer, shape = CircleShape, modifier = Modifier.size(38.dp)) {
             Box(contentAlignment = Alignment.Center) {
                 if (playbackBusy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.onSecondaryContainer
-                    )
+                    ExpressiveLoadingIndicator(size = 20.dp, color = colors.onSecondaryContainer)
                 } else {
                     Icon(
                         Icons.Rounded.PlayArrow,
