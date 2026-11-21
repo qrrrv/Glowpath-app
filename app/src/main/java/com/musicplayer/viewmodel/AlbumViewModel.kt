@@ -20,8 +20,10 @@ import java.io.File
 class AlbumViewModel(application: Application) : AndroidViewModel(application) {
 
     sealed class TrackTask {
-        object Resolving : TrackTask()
-        data class Downloading(val progress: Int) : TrackTask()
+        abstract val playback: Boolean
+
+        data class Resolving(override val playback: Boolean) : TrackTask()
+        data class Downloading(val progress: Int, override val playback: Boolean) : TrackTask()
     }
 
     private val _state = MutableStateFlow<AlbumPageState>(AlbumPageState.Idle)
@@ -65,9 +67,9 @@ class AlbumViewModel(application: Application) : AndroidViewModel(application) {
         if (_tasks.value.containsKey(track.id)) return
         val context = getApplication<Application>()
         viewModelScope.launch {
-            setTask(track.id, TrackTask.Resolving)
+            setTask(track.id, TrackTask.Resolving(playback = true))
             try {
-                val file = resolveToFile(track, OfflineAudio.cacheFile(context, track))
+                val file = resolveToFile(track, OfflineAudio.cacheFile(context, track), playback = true)
                 if (file != null) {
                     onReady(OfflineAudio.buildSong(file, track, albumCover, albumTitle))
                 } else {
@@ -84,9 +86,9 @@ class AlbumViewModel(application: Application) : AndroidViewModel(application) {
         if (_tasks.value.containsKey(track.id)) return
         val context = getApplication<Application>()
         viewModelScope.launch {
-            setTask(track.id, TrackTask.Resolving)
+            setTask(track.id, TrackTask.Resolving(playback = false))
             try {
-                val file = resolveToFile(track, OfflineAudio.libraryFile(context, track))
+                val file = resolveToFile(track, OfflineAudio.libraryFile(context, track), playback = false)
                 if (file != null) {
                     _savedTracks.update { it + track.id }
                     onSaved(OfflineAudio.buildSong(file, track, albumCover, albumTitle))
@@ -100,11 +102,11 @@ class AlbumViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun resolveToFile(track: AlbumTrack, target: File): File? {
+    private suspend fun resolveToFile(track: AlbumTrack, target: File, playback: Boolean): File? {
         if (target.exists() && target.length() > 64 * 1024L) return target
         val online = OfflineAudio.resolve(track) ?: return null
         val ok = OfflineAudio.download(online, target) { percent ->
-            setTask(track.id, TrackTask.Downloading(percent))
+            setTask(track.id, TrackTask.Downloading(percent, playback = playback))
         }
         return if (ok) target else null
     }

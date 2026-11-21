@@ -139,7 +139,7 @@ class AlbumScreenTest {
             AlbumUiState(
                 albumId = 10L,
                 content = AlbumPageState.Success(album),
-                tasks = mapOf(102L to AlbumViewModel.TrackTask.Downloading(42)),
+                tasks = mapOf(102L to AlbumViewModel.TrackTask.Downloading(42, playback = false)),
                 savedTracks = setOf(103L)
             )
         )

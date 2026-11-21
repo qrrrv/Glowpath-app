@@ -304,6 +304,7 @@ private fun AlbumTrackRow(
     val colors = MaterialTheme.colorScheme
     val font = LocalAppFontFamily.current
     val downloading = task as? AlbumViewModel.TrackTask.Downloading
+    val playbackBusy = task?.playback == true
 
     Row(
         modifier = Modifier.fillMaxWidth()
@@ -377,7 +378,7 @@ private fun AlbumTrackRow(
 
         Surface(color = colors.secondaryContainer, shape = CircleShape, modifier = Modifier.size(38.dp)) {
             Box(contentAlignment = Alignment.Center) {
-                if (task != null) {
+                if (playbackBusy) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
