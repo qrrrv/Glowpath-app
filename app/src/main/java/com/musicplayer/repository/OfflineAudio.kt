@@ -63,11 +63,19 @@ object OfflineAudio {
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Referer", refererFor(song.downloadUrl))
                 setRequestProperty("Accept", "*/*")
+                // Hitmos answers 403 to file requests that do not look like a Russian
+                // browser; the language header is what actually unlocks the MP3.
+                setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
             }
             connection.connect()
             val code = connection.responseCode
             if (code !in 200..299) {
                 Log.w(TAG, "Download rejected with HTTP " + code)
+                return@withContext false
+            }
+            val contentType = connection.contentType.orEmpty()
+            if (contentType.contains("text/html", ignoreCase = true)) {
+                Log.w(TAG, "Hitmos returned HTML instead of audio: " + contentType)
                 return@withContext false
             }
             val total = connection.contentLengthLong
