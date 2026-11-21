@@ -36,6 +36,7 @@ jobs:
           path: |
             app/build/reports/tests/testDebugUnitTest/
             app/build/reports/search-preview/
+            app/build/reports/artist-preview/
             app/build/reports/album-preview/
             app/build/reports/settings-preview/
           if-no-files-found: ignore

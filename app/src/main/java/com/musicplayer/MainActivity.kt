@@ -484,7 +484,42 @@ fun MusicPlayerApp(
                     miniArtworkBounds = miniArtworkBounds,
                     onBack       = { navController.popBackStack() },
                     onLyricsClick = { navController.navigate("lyrics") },
-                    onEditLyricsClick = { navController.navigate("lyrics_editor") }
+                    onEditLyricsClick = { navController.navigate("lyrics_editor") },
+                    onArtistClick = { artist ->
+                        if (artist.isNotBlank() && artist != "<unknown>") {
+                            navController.navigate("artist/" + Uri.encode(artist)) { launchSingleTop = true }
+                        }
+                    }
+                )
+            }
+
+            composable(
+                "artist/{name}",
+                enterTransition = { AnimationsApplier.screenEnter(settings.screenTransitionAnim, settings.animParams) },
+                exitTransition  = { AnimationsApplier.screenExit(settings.screenTransitionAnim, settings.animParams) },
+                popEnterTransition  = { AnimationsApplier.screenPopEnter(settings.screenTransitionAnim, settings.animParams) },
+                popExitTransition   = { AnimationsApplier.screenPopExit(settings.screenTransitionAnim, settings.animParams) }
+            ) { entry ->
+                val appContext = LocalContext.current
+                val artistName = Uri.decode(entry.arguments?.getString("name").orEmpty())
+                ArtistScreen(
+                    artistName = artistName,
+                    onBack = { navController.popBackStack() },
+                    onOpenArtist = { next ->
+                        if (next.isNotBlank()) {
+                            navController.navigate("artist/" + Uri.encode(next)) { launchSingleTop = true }
+                        }
+                    },
+                    onOpenUrl = { url ->
+                        if (url.isNotBlank()) {
+                            runCatching {
+                                appContext.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        }
+                    }
                 )
             }
 

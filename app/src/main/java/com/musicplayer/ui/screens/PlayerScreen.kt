@@ -94,7 +94,8 @@ fun PlayerScreen(
     miniPlayerBounds: Rect? = null,
     miniArtworkBounds: Rect? = null,
     onLyricsClick: () -> Unit = {},
-    onEditLyricsClick: () -> Unit = {}
+    onEditLyricsClick: () -> Unit = {},
+    onArtistClick: (String) -> Unit = {}
 ) {
     val c = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -284,7 +285,7 @@ fun PlayerScreen(
                     viewModel, customArtUri, previousCover, nextCover, requestClose,
                     onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev,
                     swipeProgress, expandedFraction, artworkModifier, lyricsModifier,
-                    songButtons, lyricsFlight, { capsuleSlotBounds = it }
+                    songButtons, lyricsFlight, { capsuleSlotBounds = it }, onArtistClick
                 )
             } else {
                 PlayerQueueHost(
@@ -300,7 +301,7 @@ fun PlayerScreen(
                         viewModel, customArtUri, previousCover, nextCover, requestClose,
                         onLyricsClick, { showTrackSettings = true }, doFlipNext, doFlipPrev,
                         swipeProgress, expandedFraction, queueSlots, artworkModifier, lyricsModifier,
-                        songButtons, lyricsFlight, { capsuleSlotBounds = it }
+                        songButtons, lyricsFlight, { capsuleSlotBounds = it }, onArtistClick
                     )
                 }
             }
@@ -539,6 +540,7 @@ private fun PortraitPlayerContent(
     songButtons: SongButtonColors? = null,
     lyricsFlight: Float = 0f,
     onCapsuleSlotPositioned: (Rect) -> Unit = {},
+    onArtistClick: (String) -> Unit = {},
 ) {
     // Booming: кнопка «Текст» плавно меняет обложку на текст песни (alpha 1→0 / 0→1, 350 мс).
     val lyricsProgress by animateFloatAsState(
@@ -606,7 +608,7 @@ private fun PortraitPlayerContent(
             alpha = contentReveal
             translationY = contentOffset
         }) {
-            SongMetaSection(song, viewModel)
+            SongMetaSection(song, viewModel, onArtistClick)
             Spacer(Modifier.height(16.dp))
             ProgressSection(duration, isPlaying, viewModel, songButtons)
             Spacer(Modifier.height(16.dp))
@@ -633,6 +635,7 @@ private fun LandscapePlayerContent(
     songButtons: SongButtonColors? = null,
     lyricsFlight: Float = 0f,
     onCapsuleSlotPositioned: (Rect) -> Unit = {},
+    onArtistClick: (String) -> Unit = {},
 ) {
     // Booming: кнопка «Текст» плавно меняет обложку на текст песни (alpha 1→0 / 0→1, 350 мс).
     val lyricsProgress by animateFloatAsState(
@@ -690,7 +693,7 @@ private fun LandscapePlayerContent(
             alpha = sideReveal
             translationY = sideOffset
         }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
-            SongMetaSection(song, viewModel)
+            SongMetaSection(song, viewModel, onArtistClick)
             ProgressSection(duration, isPlaying, viewModel, songButtons)
             ControlsSection(settings, isPlaying, viewModel, songButtons)
             BottomToggleRow(settings, isFavourite, viewModel, song.id, songButtons, onLyricsToggle = toggleLyrics)
@@ -909,7 +912,11 @@ private fun AlbumArtSection(
 }
 
 @Composable
-private fun SongMetaSection(song: com.musicplayer.data.Song, viewModel: MusicViewModel) {
+private fun SongMetaSection(
+    song: com.musicplayer.data.Song,
+    viewModel: MusicViewModel,
+    onArtistClick: (String) -> Unit = {}
+) {
     val c = MaterialTheme.colorScheme
     val settings by viewModel.settings.collectAsState()
     val customTitleMap  by viewModel.customTitleMap.collectAsState()
@@ -962,7 +969,10 @@ private fun SongMetaSection(song: com.musicplayer.data.Song, viewModel: MusicVie
                     letterSpacing = settings.letterSpacingEm.em,
                     textAlign = TextAlign.Center,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClickLabel = "Об исполнителе") { onArtistClick(displayArtist) }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                     style = if (settings.textShadowEnabled) androidx.compose.ui.text.TextStyle(
                         shadow = androidx.compose.ui.graphics.Shadow(
                             color = c.accent.copy(alpha = settings.textShadowIntensity * 0.5f),
