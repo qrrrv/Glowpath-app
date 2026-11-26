@@ -47,6 +47,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.text.BasicTextField
@@ -1966,6 +1967,14 @@ fun HomeTopBar(
         }
     }
 
+    // Уходя из режима «Медиатека» (поиск/выбор), полностью разворачиваем шторку —
+    // иначе после выхода заголовок возвращался наполовину подрезанным.
+    LaunchedEffect(mode) {
+        if (mode != HomeTopBarMode.Library) {
+            scrollBehavior.state.heightOffset = 0f
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -2049,7 +2058,22 @@ fun HomeTopBar(
                                     menuState = menuState,
                                     onMenuToggle = onMenuToggle,
                                     font = font,
-                                    modifier = Modifier.onSizeChanged { titleHeightPx = it.height }
+                                    modifier = Modifier
+                                        // Material 3 Expressive (Android 16): заголовок не «срезается»
+                                        // верхней границей, а растворяется и мягко сжимается к низу
+                                        // строки. Состояние читается в фазе отрисовки, поэтому
+                                        // перекомпозиции на каждый кадр прокрутки не происходит.
+                                        .graphicsLayer {
+                                            val limit = scrollBehavior.state.heightOffsetLimit
+                                            val fraction = if (limit >= 0f) 0f
+                                            else (scrollBehavior.state.heightOffset / limit).coerceIn(0f, 1f)
+                                            alpha = (1f - fraction * 2.4f).coerceIn(0f, 1f)
+                                            val scale = lerp(1f, 0.85f, fraction)
+                                            scaleX = scale
+                                            scaleY = scale
+                                            transformOrigin = TransformOrigin(0f, 1f)
+                                        }
+                                        .onSizeChanged { titleHeightPx = it.height }
                                 )
                             }
                         }
@@ -2094,7 +2118,7 @@ private fun HomeTitleRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
