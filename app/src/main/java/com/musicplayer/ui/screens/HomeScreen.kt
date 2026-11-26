@@ -2068,7 +2068,7 @@ fun HomeTopBar(
                                             val fraction = if (limit >= 0f) 0f
                                             else (scrollBehavior.state.heightOffset / limit).coerceIn(0f, 1f)
                                             alpha = (1f - fraction * 2.4f).coerceIn(0f, 1f)
-                                            val scale = lerp(1f, 0.85f, fraction)
+                                            val scale = 1f - 0.15f * fraction
                                             scaleX = scale
                                             scaleY = scale
                                             transformOrigin = TransformOrigin(0f, 1f)
